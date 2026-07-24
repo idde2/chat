@@ -5,3 +5,4 @@
 /.idea
 /flask_session
 /venv
+/__pycache__
