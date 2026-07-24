@@ -1,0 +1,17 @@
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+.back-icon {
+    position: fixed;
+    left: 10px;
+    top: 7px;
+    font-size: 1.5rem;
+}
+.back-icon:hover,
+.icons:hover {
+    color: #00c040;
+}
+.icons:active,
+.back-icon:active {
+    transform: scale(0.85);
+    color: #00c030;
+    transition: 0.3s
+}

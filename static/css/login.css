@@ -1,0 +1,295 @@
+:root {
+    --bg-dark: #080510;
+    --card-bg: rgba(20, 15, 35, 0.8);
+    --primary: #8a2be2;
+    --primary-light: #b066ff;
+    --text-white: #ffffff;
+    --text-gray: #a0a0a0;
+    --input-fill: rgba(255, 255, 255, 0.05);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: "Inter", sans-serif;
+}
+
+body {
+    background-color: var(--bg-dark);
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+.bg-overlay {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background:
+            radial-gradient(circle at top right, #2d1350, transparent),
+            radial-gradient(circle at bottom left, #1a0b2e, transparent);
+    z-index: -1;
+}
+
+.auth-card {
+    background: var(--card-bg);
+    width: 100%;
+    max-width: 400px;
+    padding: 50px 30px;
+    border-radius: 20px;
+    border: 1px solid rgba(138, 43, 226, 0.2);
+    backdrop-filter: blur(10px);
+    text-align: center;
+}
+
+.logo-text {
+    font-size: 2rem;
+    color: var(--text-white);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+}
+
+.logo-text span {
+    color: var(--primary-light);
+}
+
+.desc {
+    color: #f0f0f0;
+    font-size: 1.2rem;
+    margin-bottom: 35px;
+}
+
+.input-wrapper {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.input-wrapper i {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--primary-light);
+    font-size: 1.1rem;
+}
+
+.input-wrapper input {
+    width: 100%;
+    padding: 14px 15px 14px 45px;
+    background: var(--input-fill);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: white;
+    outline: none;
+    transition: 0.3s;
+}
+
+.input-wrapper input:focus {
+    border-color: var(--primary);
+    background: rgba(138, 43, 226, 0.1);
+}
+
+.flex-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    font-size: 0.8rem;
+    color: var(--text-gray);
+}
+
+.link {
+    color: var(--primary-light);
+    text-decoration: none;
+}
+
+.submit-btn {
+    width: 100%;
+    padding: 15px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(90deg, var(--primary), #5f27cd);
+    color: white;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.submit-btn:hover, .email:hover {
+    filter: brightness(1.2);
+    box-shadow: 0 10px 20px rgba(138, 43, 226, 0.3);
+}
+
+.card-footer {
+    margin-top: 25px;
+    color: var(--text-gray);
+    font-size: 0.85rem;
+}
+
+.card-footer a {
+    color: var(--text-white);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.error {
+    color: #7a0606;
+    font-size: 30px;
+    margin-top: 5px;
+    margin-bottom: 10px;
+}
+
+
+.checkbox-label {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 6px !important;
+    color: var(--text-gray);
+    white-space: nowrap;
+}
+
+.email {
+    position: absolute;
+    width: 35%;
+    padding: 15px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(90deg, var(--primary), #5f27cd);
+    color: white;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: 0.3s;
+}
+.input-wrapper-email {
+    position: relative;
+    margin-bottom: 20px;
+    width: 100%;
+}
+
+.input-wrapper-email i {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--primary-light);
+    font-size: 1.1rem;
+}
+
+.input-wrapper-email input {
+    width: 100%;
+    padding: 14px 90px 14px 40px; /* Platz für Icon + Button */
+    background: var(--input-fill);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: white;
+    outline: none;
+    transition: 0.3s;
+}
+
+.input-wrapper-email input:focus {
+    border-color: var(--primary);
+    background: rgba(138, 43, 226, 0.1);
+}
+
+.input-wrapper-email button {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 8px 14px;
+    background: var(--primary);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.input-wrapper-email button:hover {
+    background: var(--primary);
+}
+
+
+.register-link {
+    margin-top: 25px;
+    color: #f0f0f0 !important;
+    border: 1px solid #f0f0f0;
+    padding: 8px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+.register-link:hover {
+    transform: scale(1.05);
+    transition: 0.5s;
+}
+
+
+
+
+/* Checkbox-Container */
+.checkbox-container {
+    position: relative;
+    left: 40%;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-gray);
+    user-select: none;
+}
+
+/* Original-Checkbox verstecken */
+.checkbox-container input {
+    display: none;
+}
+
+/* Custom Checkbox */
+.checkbox-container .checkmark {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    background: var(--input-fill);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: 0.25s;
+    position: relative;
+}
+
+/* Hover Glow */
+.checkbox-container:hover .checkmark {
+    border-color: var(--primary-light);
+    box-shadow: 0 0 8px rgba(138, 43, 226, 0.4);
+}
+
+/* Haken (animiert) */
+.checkbox-container .checkmark::after {
+    content: "";
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, var(--primary), var(--primary-light));
+    transform: scale(0);
+    transition: 0.25s ease;
+}
+
+/* Aktiviert */
+.checkbox-container input:checked + .checkmark::after {
+    transform: scale(1);
+}
+
+/* Glow beim Aktivieren */
+.checkbox-container input:checked + .checkmark {
+    border-color: var(--primary-light);
+    box-shadow: 0 0 12px rgba(138, 43, 226, 0.6);
+}
