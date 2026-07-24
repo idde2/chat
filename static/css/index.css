@@ -1,0 +1,59 @@
+body {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    margin: 0;
+    padding: 10px;
+    background: linear-gradient(to bottom right, #222, #333);
+    color: #fff;
+    justify-content: center;
+    align-items: center;
+}
+.container {
+    font-size: 3rem;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.contact {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    white-space: nowrap;
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 5px 10px rgba(2,2,2,0.7);
+
+}
+.contact:nth-child(odd) {
+background: rgba(15,15,15,0.2);
+}
+.contact:nth-child(even) {
+background: rgba(15,15,15,0.7);
+}
+
+.add-user {
+    display: flex;
+    position: fixed;
+    white-space: nowrap;
+    align-items: center;
+    top: 10px;
+    left: 50%;
+    width: 200px;
+    height: 50px;
+    transform: translateX(-50%);
+    font-size: 1.5rem;
+    box-shadow: 0 5px 10px rgba(2,2,2,0.7);
+    padding: 5px 5px;
+    border: 2 px solid #fff;
+    border-radius: 5px;
+    gap: 10px;
+    cursor: pointer;
+}
+
+.contact:hover,
+.add-user:hover {
+    box-shadow: 0 5px 10px rgba(10,10,10,0.5);
+    scale: 0.99;
+    transition: 0.3s;
+}

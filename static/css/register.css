@@ -1,0 +1,13 @@
+.passwordreq {
+    text-align: left;
+    color: red;
+    margin-bottom: 10px;
+}
+.passwordreq i {
+    padding: 2px;
+}
+.valid   { color: green; !important;  }
+.invalid {   color: red; !important;  }
+
+.disabled { opacity: 0.1;}
+.enabled  { opacity: 1;  }
