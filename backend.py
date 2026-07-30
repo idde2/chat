@@ -328,3 +328,141 @@ def send_message(receiver_id):
         sio.emit("msg", {"content": content, "sender": my_username, "sender_id": my_id}, room=room)
 
     return jsonify({"code": 201, "message": "Nachricht gesendet"})
+
+
+# -------------------------------------------------------
+# Route: POST /api/messages/<receiver_id>/read
+# -------------------------------------------------------
+@back.route("/messages/<int:receiver_id>/read", methods=["POST"])
+@jwt_required
+def mark_messages_read(receiver_id):
+    my_id = request.jwt_user_id
+    sqlq("UPDATE msg SET status = 'read' WHERE id = %s AND receiver = %s AND status != 'read'", (receiver_id, my_id), "none")
+
+    from api import socketio as sio
+    if sio:
+        ids = sorted([int(my_id), int(receiver_id)])
+        room = f"{ids[0]}_{ids[1]}"
+        sio.emit("messages_read", {"reader_id": my_id, "sender_id": receiver_id}, room=room)
+
+    return jsonify({"code": 200, "message": "Als gelesen markiert"})
+
+
+# -------------------------------------------------------
+# Route: POST /api/upload
+# -------------------------------------------------------
+@back.route("/upload", methods=["POST"])
+@jwt_required
+def api_upload_file():
+    my_id = request.jwt_user_id
+    my_username = request.jwt_username
+
+    receiver_id = request.form.get("receiver_id")
+    group_id = request.form.get("group_id")
+    file = request.files.get("file")
+
+    if not file or file.filename == '':
+        return jsonify({"code": 400, "error": "Keine Datei ausgewählt"}), 400
+
+    import uuid
+    from werkzeug.utils import secure_filename
+    from flask import current_app
+
+    filename = secure_filename(file.filename)
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+        file_type = 'image'
+    elif ext in ['.mp3', '.wav', '.ogg', '.m4a', '.webm']:
+        file_type = 'audio'
+    else:
+        file_type = 'document'
+
+    upload_folder = current_app.config.get('UPLOAD_FOLDER', os.path.join(current_app.root_path, "static", "uploads"))
+    os.makedirs(upload_folder, exist_ok=True)
+
+    unique_name = f"{uuid.uuid4().hex}_{filename}"
+    file_path = os.path.join(upload_folder, unique_name)
+    file.save(file_path)
+
+    file_url = f"/chat/static/uploads/{unique_name}"
+    content = filename
+
+    from api import socketio as sio
+
+    if group_id:
+        group_id = int(group_id)
+        sqlq(
+            "INSERT INTO msg (id, receiver, conv, content, file_url, file_type, status) VALUES (%s, 0, %s, %s, %s, %s, 'sent')",
+            (my_id, group_id, content, file_url, file_type), "none"
+        )
+        if sio:
+            sio.emit("msg", {
+                "content": content,
+                "sender": my_username,
+                "sender_id": my_id,
+                "file_url": file_url,
+                "file_type": file_type,
+                "status": "sent"
+            }, room=f"group_{group_id}")
+    elif receiver_id:
+        receiver_id = int(receiver_id)
+        sqlq(
+            "INSERT INTO msg (id, receiver, content, file_url, file_type, status) VALUES (%s, %s, %s, %s, %s, 'sent')",
+            (my_id, receiver_id, content, file_url, file_type), "none"
+        )
+        if sio:
+            ids = sorted([int(my_id), receiver_id])
+            sio.emit("msg", {
+                "content": content,
+                "sender": my_username,
+                "sender_id": my_id,
+                "file_url": file_url,
+                "file_type": file_type,
+                "status": "sent"
+            }, room=f"{ids[0]}_{ids[1]}")
+
+    return jsonify({"code": 200, "file_url": file_url, "file_type": file_type})
+
+
+# -------------------------------------------------------
+# Route: GET & POST /api/groups
+# -------------------------------------------------------
+@back.route("/groups", methods=["GET", "POST"])
+@jwt_required
+def api_groups():
+    my_id = request.jwt_user_id
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        name = str(data.get("name", "")).strip()
+        members = data.get("members", [])
+
+        if not name:
+            return jsonify({"code": 400, "error": "Gruppenname erforderlich"}), 400
+
+        if my_id not in members:
+            members.append(my_id)
+
+        sqlq("INSERT INTO `groups` (name, owner_id, members) VALUES (%s, %s, %s)", (name, my_id, json.dumps(members)), "none")
+        gid_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
+        gid = gid_row[0] if gid_row else None
+
+        return jsonify({"code": 201, "group": {"id": gid, "name": name, "owner_id": my_id, "members": members}}), 201
+
+    rows = sqlq("SELECT id, name, owner_id, members FROM `groups` WHERE owner_id = %s OR members LIKE %s", (my_id, f"%{my_id}%"), "all")
+    groups = []
+    if rows:
+        for r in rows:
+            try:
+                m_list = json.loads(r[3])
+            except Exception:
+                m_list = []
+            groups.append({
+                "id": r[0],
+                "name": r[1],
+                "owner_id": r[2],
+                "members": m_list
+            })
+    return jsonify({"code": 200, "groups": groups})
+

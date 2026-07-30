@@ -3,20 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Title</title>
+    <title>Chat mit {{ receiver_name }}</title>
     <link rel="stylesheet" href="/chat/static/css/chat.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/chat/static/css/main.css">
-
 </head>
 <body data-receiver="{{ receiver }}" data-user="{{ user }}">
 <div class="header">
-    <div onclick="window.location.href = '/chat'" class="back-icon">
+    <div onclick="window.location.href = '/chat'" class="back-icon" style="cursor: pointer;">
         <i class="fa-solid fa-arrow-left"></i>
     </div>
     <div class="user-info">
-        <img src="/chat/static/img/profil/{{ receiver_name }}.png" height="25" width="25"  alt="">
-        <span >{{ receiver_name }}</span>
+        <img src="/chat/static/img/profil/{{ receiver_name }}.png" height="25" width="25" alt="" onerror="this.src='/chat/static/img/profil/default.png'">
+        <span>{{ receiver_name }}</span>
     </div>
     <div class="icons">
         <i class="fa-solid fa-ellipsis-vertical"></i>
@@ -24,26 +23,46 @@
 </div>
 <div class="container">
     {% for message in msg %}
-        {% if message[0] == user %}
-            <div class="message-wrapper du">
-                <p>{{ message[1] }}</p>
-                <p data-time="{{ message[2]}}" class="time"></p>
+        {% set is_me = (message[0] == user) %}
+        <div class="message-wrapper {{ 'du' if is_me else 'fremd' }}">
+            {% if message[5] %}
+                {% if message[6] == 'image' %}
+                    <img src="{{ message[5] }}" alt="Bild" style="max-width: 250px; border-radius: 8px; display: block; margin-bottom: 5px;">
+                {% elif message[6] == 'audio' %}
+                    <audio controls src="{{ message[5] }}" style="max-width: 220px; display: block; margin-bottom: 5px;"></audio>
+                {% else %}
+                    <a href="{{ message[5] }}" target="_blank" style="color: #4fc3f7; text-decoration: underline; display: block; margin-bottom: 5px;">
+                        <i class="fa-solid fa-file"></i> {{ message[1] }}
+                    </a>
+                {% endif %}
+            {% endif %}
+            <p>{{ message[1] }}</p>
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
+                <p data-time="{{ message[2] }}" class="time"></p>
+                {% if is_me %}
+                    <span class="read-status {{ message[4] }}" style="font-size: 12px; font-weight: bold; margin-left: 4px;">
+                        {% if message[4] == 'read' %}
+                            <span style="color: #4fc3f7;">✓✓</span>
+                        {% elif message[4] == 'delivered' %}
+                            <span>✓✓</span>
+                        {% else %}
+                            <span>✓</span>
+                        {% endif %}
+                    </span>
+                {% endif %}
             </div>
-
-        {% endif %}
-
-        {% if message[0] == receiver %}
-            <div class="message-wrapper fremd">
-                <p>{{ message[1] }}</p>
-                <p data-time="{{ message[2]}}" class="time"></p>
-            </div>
-        {% endif %}
+        </div>
     {% endfor %}
     <div style="height: 100px; flex-shrink: 0;"></div>
 </div>
 
-<form class="input" action="/chat/msg/{{ receiver }}" method="post">
-    <input type="text" autocomplete="off" name="msg" placeholder="Nachricht" required>
+<form class="input" action="/chat/msg/{{ receiver }}" method="post" enctype="multipart/form-data">
+    <label for="file-upload" class="file-btn" style="cursor: pointer; padding: 0 10px; font-size: 18px; color: #888;">
+        <i class="fa-solid fa-paperclip"></i>
+    </label>
+    <input id="file-upload" type="file" style="display:none;" onchange="uploadFile(this)">
+
+    <input type="text" autocomplete="off" name="msg" id="msg-input" placeholder="Nachricht" required>
 
     <button type="submit" class="submit-btn">
         <i class="fa-solid fa-paper-plane"></i>
@@ -51,6 +70,6 @@
 </form>
 
 <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
-<script src="/chat/static/js/chat.js"> </script>
+<script src="/chat/static/js/chat.js"></script>
 </body>
-</html>
+</html>

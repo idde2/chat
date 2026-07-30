@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>chats</title>
+    <link rel="stylesheet" href="/chat/static/css/index.css">
+    <link rel="stylesheet" href="https://eddi.cowdie.com/chat/static/css/index.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/chat/static/css/main.css">
+</head>
+<body>
+
+<div onclick="window.location.href = '/chat/kontakt' " class="add-user">
+    <i class="fa-solid fa-user"></i>
+    <p>   neuer kontakt</p>
+</div>
+
+<div  class="container">
+{% for contact in kontacts %}
+    <div onclick="window.location.href='/chat/chat/{{ contact }}'" style="cursor: pointer;" class="contact">
+        <img src="/chat/static/img/profil/{{ contact }}.png" height="50" width="50" alt="">
+        <span>{{ contact }} </span>
+    </div>
+    
+{% endfor %}
+
+</body>
+</html>

@@ -28,14 +28,7 @@ def set_config():
         config.write(f)
 
 
-def get_connection():
-    return mysql.connector.connect(
-        host=get_conf("host"),
-        user=get_conf("user"),
-        password=get_conf("password"),
-        database=get_conf("database")
-    )
-
+from mysql.connector import pooling
 
 config = configparser.ConfigParser()
 conf = "config.ini"
@@ -44,6 +37,44 @@ if os.path.isfile(conf):
 
 def get_conf(option, fallback=None):
     return config["DEFAULT"].get(option, fallback)
+
+db_pool = None
+
+def get_connection():
+    global db_pool
+    host = get_conf("host", "127.0.0.1")
+    if host == "localhost":
+        host = "127.0.0.1"
+
+    if db_pool is None:
+        try:
+            db_pool = pooling.MySQLConnectionPool(
+                pool_name="chat_pool",
+                pool_size=10,
+                pool_reset_session=True,
+                host=host,
+                user=get_conf("user"),
+                password=get_conf("password"),
+                database=get_conf("database")
+            )
+        except Exception:
+            return mysql.connector.connect(
+                host=host,
+                user=get_conf("user"),
+                password=get_conf("password"),
+                database=get_conf("database")
+            )
+
+    try:
+        return db_pool.get_connection()
+    except Exception:
+        return mysql.connector.connect(
+            host=host,
+            user=get_conf("user"),
+            password=get_conf("password"),
+            database=get_conf("database")
+        )
+
 
 
 def log(username, name, wert, action):
