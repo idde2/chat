@@ -317,7 +317,10 @@ def msg(receiver,msg=None):
     msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
     msg_id = msg_id_row[0] if msg_id_row else 0
 
-    socketio.emit("msg", {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id}, room=room)
+    msg_payload = {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id}
+    socketio.emit("msg", msg_payload, room=room)
+    socketio.emit("msg", msg_payload, room=f"user_{recv_id}")
+    socketio.emit("msg", msg_payload, room=f"user_{my_id}")
 
     if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json or request.headers.get("Accept", "").find("application/json") != -1:
         return jsonify({"code": 200, "message": "Gesendet", "msg_id": msg_id})
@@ -571,7 +574,6 @@ def profile_image(filename):
 
 
 @app.route("/logout")
-
 def logout():
 
     session["auth"] = False
@@ -656,7 +658,9 @@ def on_mark_read(data):
 
     ids = sorted([int(my_id), int(sender_id)])
     room = f"{ids[0]}_{ids[1]}"
-    emit("messages_read", {"reader_id": my_id, "sender_id": sender_id}, room=room)
+    payload = {"reader_id": my_id, "sender_id": sender_id}
+    emit("messages_read", payload, room=room)
+    emit("messages_read", payload, room=f"user_{sender_id}")
 
 
 # ------------------------  message edit & del ------------------------
@@ -861,6 +865,9 @@ def on_connect():
     user = session.get("user")
     if user:
         online_users.add(user)
+        row = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+        if row:
+            join_room(f"user_{row[0]}")
     socketio.emit("online_update", {"users": list(online_users)})
 
 @socketio.on('disconnect')

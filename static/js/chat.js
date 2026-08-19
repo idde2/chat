@@ -1,5 +1,5 @@
 const socket = io({
-    path: '/chat/socket.io'
+    path: window.location.pathname.startsWith('/chat') ? '/chat/socket.io' : '/socket.io'
 });
 
 function formatTime(element) {

@@ -1,55 +1,80 @@
-// Group creation modal logic
-document.getElementById('open-group-modal').addEventListener('click', async () => {
-    const modal = document.getElementById('group-modal');
-    modal.style.display = 'flex';
+const currentUser = document.body.getAttribute('data-user') || '';
+const socket = io({
+    path: window.location.pathname.startsWith('/chat') ? '/chat/socket.io' : '/socket.io'
+});
 
-    const list = document.getElementById('group-members-list');
-    list.innerHTML = '';
-    try {
-        const res = await fetch('/chat/users_list');
-        const data = await res.json();
-        if (data.code === 200) {
-            data.users.forEach(u => {
-                const label = document.createElement('label');
-                const cb = document.createElement('input');
-                cb.type = 'checkbox';
-                cb.value = u.id;
-                label.appendChild(cb);
-                const span = document.createElement('span');
-                span.textContent = ' ' + u.username;
-                label.appendChild(span);
-                list.appendChild(label);
-            });
-        }
-    } catch (e) {
-        console.error('Failed to load users', e);
+socket.on('connect', () => {
+    if (currentUser) {
+        socket.emit('join', { user_id: currentUser });
     }
 });
 
-document.getElementById('cancel-group').addEventListener('click', () => {
-    document.getElementById('group-modal').style.display = 'none';
+socket.on('online_update', (data) => {
+    const onlineUsers = data.users || [];
+    document.querySelectorAll('.online-indicator').forEach(el => el.classList.remove('is-online'));
+    onlineUsers.forEach(username => {
+        const badge = document.getElementById(`online-${username}`);
+        if (badge) badge.classList.add('is-online');
+    });
 });
 
-document.getElementById('create-group').addEventListener('click', async () => {
-    const name = document.getElementById('group-name').value.trim();
-    const boxes = Array.from(document.querySelectorAll('#group-members-list input[type=checkbox]:checked'));
-    const members = boxes.map(b => parseInt(b.value));
-    if (!name) { alert('Bitte Namen eingeben'); return; }
+function openGroupModal() {
+    const modal = document.getElementById('groupModal');
+    if (modal) modal.classList.remove('hidden');
 
-    try {
-        const resp = await fetch('/chat/create_group', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name, members: members })
+    const usersUrl = window.location.pathname.startsWith('/chat') ? '/chat/users_list' : '/users_list';
+    fetch(usersUrl)
+        .then(res => res.json())
+        .then(data => {
+            const listContainer = document.getElementById('membersSelectList');
+            if (listContainer) {
+                if (data.code === 200 && data.users && data.users.length > 0) {
+                    listContainer.innerHTML = data.users.map(u => `
+                        <label class="member-checkbox-item">
+                            <input type="checkbox" value="${u.id}" class="group-member-checkbox">
+                            <span>${u.username}</span>
+                        </label>
+                    `).join('');
+                } else {
+                    listContainer.innerHTML = '<p style="color:#aaa;">Keine anderen Benutzer gefunden.</p>';
+                }
+            }
+        })
+        .catch(() => {
+            const listContainer = document.getElementById('membersSelectList');
+            if (listContainer) listContainer.innerHTML = '<p style="color:red;">Fehler beim Laden.</p>';
         });
-        const j = await resp.json();
-        if (j.code === 201 || resp.status === 201) {
-            window.location.href = '/chat/group/' + j.group.id;
-        } else {
-            alert('Fehler: ' + (j.error || JSON.stringify(j)));
-        }
-    } catch (e) {
-        console.error(e);
-        alert('Fehler beim Erstellen der Gruppe');
+}
+
+function closeGroupModal() {
+    const modal = document.getElementById('groupModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function submitCreateGroup() {
+    const nameInput = document.getElementById('groupNameInput');
+    if (!nameInput) return;
+    const name = nameInput.value.trim();
+    const checkedBoxes = document.querySelectorAll('.group-member-checkbox:checked');
+    const memberIds = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
+
+    if (!name) {
+        alert('Bitte gib einen Gruppennamen ein!');
+        return;
     }
-});
+
+    const createUrl = window.location.pathname.startsWith('/chat') ? '/chat/api/groups/create' : '/api/groups/create';
+    fetch(createUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name, members: memberIds })
+    })
+        .then(res => res.json())
+        .then(data => {
+            if (data.code === 200) {
+                window.location.reload();
+            } else {
+                alert('Fehler beim Erstellen der Gruppe');
+            }
+        });
+}
