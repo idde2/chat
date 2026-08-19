@@ -1,59 +1,177 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --bg-dark: #0f172a;
+    --bg-card: rgba(30, 41, 59, 0.7);
+    --accent-emerald: #10b981;
+    --accent-emerald-glow: rgba(16, 185, 129, 0.35);
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --border-light: rgba(255, 255, 255, 0.08);
+}
+
+* {
+    box-sizing: border-box;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
 body {
     display: flex;
     flex-direction: column;
     height: 100vh;
     margin: 0;
-    padding: 10px;
-    background: linear-gradient(to bottom right, #222, #333);
-    color: #fff;
-    justify-content: center;
+    padding: 0;
+    background: radial-gradient(circle at top right, #1e1b4b, #0f172a 60%);
+    color: var(--text-main);
     align-items: center;
 }
-.container {
-    font-size: 3rem;
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-}
-.contact {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    white-space: nowrap;
-    padding: 10px;
-    border-radius: 10px;
-    box-shadow: 0 5px 10px rgba(2,2,2,0.7);
 
-}
-.contact:nth-child(odd) {
-background: rgba(15,15,15,0.2);
-}
-.contact:nth-child(even) {
-background: rgba(15,15,15,0.7);
+/* ── Top action bar ── */
+.top-actions {
+    display: flex;
+    gap: 10px;
+    padding: 16px 20px;
+    width: 100%;
+    max-width: 600px;
+    flex-shrink: 0;
 }
 
 .add-user {
     display: flex;
-    position: fixed;
-    white-space: nowrap;
     align-items: center;
-    top: 10px;
-    left: 50%;
-    width: 200px;
-    height: 50px;
-    transform: translateX(-50%);
-    font-size: 1.5rem;
-    box-shadow: 0 5px 10px rgba(2,2,2,0.7);
-    padding: 5px 5px;
-    border: 2 px solid #fff;
-    border-radius: 5px;
     gap: 10px;
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-main);
     cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
 }
 
-.contact:hover,
+.add-user i {
+    color: var(--accent-emerald);
+    font-size: 1.1rem;
+}
+
+.add-user p {
+    margin: 0;
+}
+
 .add-user:hover {
-    box-shadow: 0 5px 10px rgba(10,10,10,0.5);
-    scale: 0.99;
-    transition: 0.3s;
+    background: rgba(30, 41, 59, 0.9);
+    border-color: var(--accent-emerald);
+    box-shadow: 0 4px 20px var(--accent-emerald-glow);
+    transform: translateY(-1px);
+}
+
+/* ── Contact list ── */
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    max-width: 600px;
+    padding: 0 20px 20px;
+    overflow-y: auto;
+    flex-grow: 1;
+}
+
+.contact {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: var(--bg-card);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border-light);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.contact img {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid var(--border-light);
+}
+
+.contact:hover {
+    background: rgba(30, 41, 59, 0.95);
+    border-color: rgba(255, 255, 255, 0.12);
+    transform: translateX(4px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.online-indicator {
+    display: none !important;
+}
+
+.online-indicator.is-online {
+    display: inline-block !important;
+    width: 10px;
+    height: 10px;
+    background-color: var(--accent-emerald);
+    border-radius: 50%;
+    margin-left: auto;
+    box-shadow: 0 0 8px var(--accent-emerald-glow);
+    animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 6px var(--accent-emerald-glow); }
+    50% { box-shadow: 0 0 14px var(--accent-emerald-glow); }
+}
+
+/* ── Group modal and controls ── */
+.group-btn {
+    padding: 10px 14px;
+    background: var(--accent-emerald);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+}
+
+.group-modal-content {
+    background: #1e293b;
+    color: #fff;
+    padding: 20px;
+    border-radius: 14px;
+    width: 94%;
+    max-width: 480px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    border: 1px solid var(--border-light);
+}
+
+.group-modal-content h3 { margin: 0 0 12px 0; }
+.group-modal-content label { display:block; margin-bottom:6px; font-size:0.95rem; color:#ddd }
+.group-modal-content input[type="text"] {
+    width:100%; padding:10px; border-radius:8px; border:1px solid var(--border-light); background: var(--bg-dark); color:#fff; margin-bottom:10px;
+}
+.group-modal-content select {
+    width:100%; padding:8px; border-radius:8px; border:1px solid var(--border-light); background: var(--bg-dark); color:#fff; margin-bottom:10px;
+}
+.group-members-list {
+    max-height: 220px; overflow:auto; padding:6px; border-radius:8px; background: var(--bg-dark); border:1px solid var(--border-light); margin-bottom:10px;
+}
+.group-members-list label { display:flex; align-items:center; gap:8px; padding:6px 4px; color:#eee; }
+.group-members-list input[type="checkbox"] { width:16px; height:16px; }
+.modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+.modal-actions .btn { padding:8px 14px; border-radius:8px; cursor:pointer; font-weight: 600; }
+.modal-actions .btn.cancel { background:transparent; color:#ddd; border:1px solid var(--border-light); }
+.modal-actions .btn.primary { background:var(--accent-emerald); color:#fff; border:none; }
+
+/* ── Responsive ── */
+@media (max-width:420px) {
+    .top-actions { flex-direction: column; gap: 8px; }
+    .add-user { font-size: 0.9rem; }
 }

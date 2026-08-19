@@ -1,29 +1,245 @@
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>chats</title>
-    <link rel="stylesheet" href="/chat/static/css/index.css">
-    <link rel="stylesheet" href="https://eddi.cowdie.com/chat/static/css/index.css">
+    <link rel="stylesheet" href="/chat/static/css/index.css?v=3">
+    <link rel="stylesheet" href="/chat/static/css/main.css?v=2">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/chat/static/css/main.css">
 </head>
+
 <body>
 
-<div onclick="window.location.href = '/chat/kontakt' " class="add-user">
-    <i class="fa-solid fa-user"></i>
-    <p>   neuer kontakt</p>
-</div>
+    <div class="top-actions">
+        <div onclick="window.location.href = '/chat/kontakt' " class="add-user">
+            <i class="fa-solid fa-user"></i>
+            <p>neuer kontakt</p>
+        </div>
 
-<div  class="container">
-{% for contact in kontacts %}
-    <div onclick="window.location.href='/chat/chat/{{ contact }}'" style="cursor: pointer;" class="contact">
-        <img src="/chat/static/img/profil/{{ contact }}.png" height="50" width="50" alt="">
-        <span>{{ contact }} </span>
+        <div onclick="openGroupModal()" class="add-user">
+            <i class="fa-solid fa-users"></i>
+            <p>neue gruppe</p>
+        </div>
     </div>
-    
-{% endfor %}
 
+    <div class="container">
+        {% for contact in kontacts %}
+        <div onclick="window.location.href='/chat/chat/{{ contact }}'" style="cursor: pointer;" class="contact"
+            data-name="{{ contact }}">
+            <img src="/chat/static/img/profil/{{ contact }}.png" height="50" width="50" alt="{{ contact }}">
+            <span>{{ contact }}</span>
+            <span class="online-indicator" id="online-{{ contact }}"></span>
+        </div>
+        {% endfor %}
+
+        {% if groups %}
+        <h3 style="color: #fff; margin: 20px 0 10px 0; font-size: 1.1rem;">Gruppen</h3>
+        {% for group in groups %}
+        <div onclick="window.location.href='/chat/group/{{ group.id }}'" style="cursor: pointer;" class="contact"
+            data-name="{{ group.name }}">
+            <div
+                style="width: 50px; height: 50px; border-radius: 50%; background: #6366f1; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;">
+                <i class="fa-solid fa-users"></i>
+            </div>
+            <span>{{ group.name }}</span>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <!-- Modal: Gruppe erstellen -->
+    <div id="groupModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-users-gear"></i> Neue Gruppe erstellen</h3>
+                <button class="close-btn" onclick="closeGroupModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <label for="groupNameInput">Gruppenname</label>
+                <input type="text" id="groupNameInput" class="form-input" placeholder="Z.B. Projekt Team">
+
+                <label style="margin-top: 10px; display: block;">Mitglieder auswählen</label>
+                <div class="members-select-list" id="membersSelectList">
+                    <p class="loading-text"><i class="fa-solid fa-spinner fa-spin"></i> Lade Kontakte...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeGroupModal()">Abbrechen</button>
+                <button class="btn btn-primary" onclick="submitCreateGroup()">Erstellen</button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .hidden {
+            display: none !important;
+        }
+
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .modal-card {
+            background: #1e293b;
+            color: #fff;
+            width: 90%;
+            max-width: 400px;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #334155;
+            background: #0f172a;
+            color: #fff;
+            box-sizing: border-box;
+        }
+
+        .members-select-list {
+            max-height: 150px;
+            overflow-y: auto;
+            background: #0f172a;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 5px;
+        }
+
+        .member-checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 0;
+            color: #fff;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: #22c55e;
+            color: #fff;
+        }
+
+        .btn-secondary {
+            background: #475569;
+            color: #fff;
+        }
+
+
+    </style>
+
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script>
+        const currentUser = "{{ session.get('user') }}";
+        const socket = io({ path: '/chat/socket.io' });
+
+        socket.on('connect', () => {
+            socket.emit('join', { user_id: currentUser });
+        });
+
+        socket.on('online_update', (data) => {
+            const onlineUsers = data.users || [];
+            document.querySelectorAll('.online-indicator').forEach(el => el.classList.remove('is-online'));
+            onlineUsers.forEach(username => {
+                const badge = document.getElementById(`online-${username}`);
+                if (badge) badge.classList.add('is-online');
+            });
+        });
+
+        function openGroupModal() {
+            document.getElementById('groupModal').classList.remove('hidden');
+            fetch('/chat/users_list')
+                .then(res => res.json())
+                .then(data => {
+                    const listContainer = document.getElementById('membersSelectList');
+                    if (data.code === 200 && data.users.length > 0) {
+                        listContainer.innerHTML = data.users.map(u => `
+                        <label class="member-checkbox-item">
+                            <input type="checkbox" value="${u.id}" class="group-member-checkbox">
+                            <span>${u.username}</span>
+                        </label>
+                    `).join('');
+                    } else {
+                        listContainer.innerHTML = '<p style="color:#aaa;">Keine anderen Benutzer gefunden.</p>';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('membersSelectList').innerHTML = '<p style="color:red;">Fehler beim Laden.</p>';
+                });
+        }
+
+        function closeGroupModal() {
+            document.getElementById('groupModal').classList.add('hidden');
+        }
+
+        function submitCreateGroup() {
+            const name = document.getElementById('groupNameInput').value.trim();
+            const checkedBoxes = document.querySelectorAll('.group-member-checkbox:checked');
+            const memberIds = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
+
+            if (!name) {
+                alert('Bitte gib einen Gruppennamen ein!');
+                return;
+            }
+
+            fetch('/api/groups/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, members: memberIds })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.code === 200) {
+                        window.location.reload();
+                    } else {
+                        alert('Fehler beim Erstellen der Gruppe');
+                    }
+                });
+        }
+    </script>
 </body>
+
 </html>

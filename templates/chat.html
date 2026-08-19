@@ -1,75 +1,134 @@
 <!DOCTYPE html>
 <html lang="de">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat mit {{ receiver_name }}</title>
-    <link rel="stylesheet" href="/chat/static/css/chat.css">
+    <link rel="stylesheet" href="/chat/static/css/chat.css?v=5">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/chat/static/css/main.css">
+    <link rel="stylesheet" href="/chat/static/css/main.css?v=5">
 </head>
-<body data-receiver="{{ receiver }}" data-user="{{ user }}">
-<div class="header">
-    <div onclick="window.location.href = '/chat'" class="back-icon" style="cursor: pointer;">
-        <i class="fa-solid fa-arrow-left"></i>
+
+<body data-receiver="{{ receiver }}" data-user="{{ user }}" {% if group_id %}data-group-id="{{ group_id }}" {% endif %}>
+    <div class="header">
+        <div onclick="window.location.href = '/chat'" class="back-icon" style="cursor: pointer;">
+            <i class="fa-solid fa-arrow-left"></i>
+        </div>
+        <div class="user-info">
+            <img src="/chat/static/img/profil/{{ receiver_name }}.png" alt="" height="25" width="25" alt=""
+                loading="lazy" decoding="async" fetchpriority="low">
+            <span>{{ receiver_name }}</span>
+        </div>
+        <div class="header-right" style="display: flex; align-items: center; gap: 12px;">
+            <div class="gallery-icon" onclick="openMediaGallery()" style="cursor: pointer; font-size: 1.1rem; color: var(--text-muted);" title="Medien-Galerie">
+                <i class="fa-solid fa-images"></i>
+            </div>
+            <div class="icons" id="icons">
+                <i class="fa-solid fa-ellipsis-vertical"></i>
+            </div>
+        </div>
+        <div class="icons-user" id="icons-user">
+            <p> receiver-id: {{ receiver }}</p>
+            <a href="javascript:void(0)" onclick="openMediaGallery()" style="color: #3b82f6; display: block; margin-bottom: 8px;"><i class="fa-solid fa-images"></i> Medien-Galerie</a>
+            <a href="/chat/kontakt/del/{{receiver}}"><i class="fa-solid fa-trash"></i> Kontakt löschen</a>
+        </div>
     </div>
-    <div class="user-info">
-        <img src="/chat/static/img/profil/{{ receiver_name }}.png" height="25" width="25" alt="" onerror="this.src='/chat/static/img/profil/default.png'">
-        <span>{{ receiver_name }}</span>
+
+
+    {% if group_id and participants %}
+    <div class="group-participants" style="padding: 8px 12px; background: #fafafa; border-bottom: 1px solid #eee;">
+        <strong>Teilnehmer:</strong>
+        {% for p in participants %}
+        <span style="margin-left:8px; font-weight:500;">{{ p.username }}</span>
+        {% endfor %}
     </div>
-    <div class="icons">
-        <i class="fa-solid fa-ellipsis-vertical"></i>
-    </div>
-</div>
-<div class="container">
-    {% for message in msg %}
-        {% set is_me = (message[0] == user) %}
-        <div class="message-wrapper {{ 'du' if is_me else 'fremd' }}">
+    {% endif %}
+
+    <div class="container">
+        {% for message in msg %}
+        {% set msg_id = message[0] %}
+        {% set is_me = (message[8] == user) %}
+        <div class="message-wrapper {{ 'du' if is_me else 'fremd' }}" data-msg-id="{{ msg_id }}">
+            {% if group_id %}
+            <div style="font-size:0.85rem; color:#cfcfcf; margin-bottom:4px;">{{ message[7] }}</div>
+            {% endif %}
             {% if message[5] %}
-                {% if message[6] == 'image' %}
-                    <img src="{{ message[5] }}" alt="Bild" style="max-width: 250px; border-radius: 8px; display: block; margin-bottom: 5px;">
-                {% elif message[6] == 'audio' %}
-                    <audio controls src="{{ message[5] }}" style="max-width: 220px; display: block; margin-bottom: 5px;"></audio>
-                {% else %}
-                    <a href="{{ message[5] }}" target="_blank" style="color: #4fc3f7; text-decoration: underline; display: block; margin-bottom: 5px;">
-                        <i class="fa-solid fa-file"></i> {{ message[1] }}
-                    </a>
-                {% endif %}
+            {% if message[6] == 'image' %}
+            <img src="{{ message[5] }}" alt="Bild"
+                style="max-width: 250px; border-radius: 8px; display: block; margin-bottom: 5px;">
+            {% elif message[6] == 'audio' %}
+            <audio controls src="{{ message[5] }}"
+                style="max-width: 220px; display: block; margin-bottom: 5px;"></audio>
+            {% else %}
+            <a href="{{ message[5] }}" target="_blank"
+                style="color: #4fc3f7; text-decoration: underline; display: block; margin-bottom: 5px;">
+                <i class="fa-solid fa-file"></i> {{ message[1] }}
+            </a>
+            {% endif %}
             {% endif %}
             <p>{{ message[1] }}</p>
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
                 <p data-time="{{ message[2] }}" class="time"></p>
                 {% if is_me %}
-                    <span class="read-status {{ message[4] }}" style="font-size: 12px; font-weight: bold; margin-left: 4px;">
-                        {% if message[4] == 'read' %}
-                            <span style="color: #4fc3f7;">✓✓</span>
-                        {% elif message[4] == 'delivered' %}
-                            <span>✓✓</span>
-                        {% else %}
-                            <span>✓</span>
-                        {% endif %}
-                    </span>
+                <span class="read-status {{ message[4] }}"
+                    style="font-size: 12px; font-weight: bold; margin-left: 4px;">
+                    {% if message[4] == 'read' %}
+                    <span style="color: #4fc3f7;">✓✓</span>
+                    {% elif message[4] == 'delivered' %}
+                    <span>✓✓</span>
+                    {% else %}
+                    <span>✓</span>
+                    {% endif %}
+                </span>
                 {% endif %}
             </div>
+            <div class="quick-reactions">
+                <span onclick="toggleReaction({{ msg_id }}, '👍')">👍</span>
+                <span onclick="toggleReaction({{ msg_id }}, '❤️')">❤️</span>
+                <span onclick="toggleReaction({{ msg_id }}, '😂')">😂</span>
+                <span onclick="toggleReaction({{ msg_id }}, '🔥')">🔥</span>
+            </div>
         </div>
-    {% endfor %}
-    <div style="height: 100px; flex-shrink: 0;"></div>
-</div>
+        {% endfor %}
+    </div>
+    <div style="height: 90px; flex-shrink: 0;"></div>
 
-<form class="input" action="/chat/msg/{{ receiver }}" method="post" enctype="multipart/form-data">
-    <label for="file-upload" class="file-btn" style="cursor: pointer; padding: 0 10px; font-size: 18px; color: #888;">
-        <i class="fa-solid fa-paperclip"></i>
-    </label>
-    <input id="file-upload" type="file" style="display:none;" onchange="uploadFile(this)">
+    <!-- Modal: Medien Galerie -->
+    <div id="mediaGalleryModal" class="modal-backdrop hidden">
+        <div class="modal-card gallery-modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-images"></i> Medien & Dateien</h3>
+                <button class="close-btn" onclick="closeMediaGallery()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="gallery-grid" id="galleryGrid">
+                    <p style="color: var(--text-muted); text-align: center;">Lade Medien...</p>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    <input type="text" autocomplete="off" name="msg" id="msg-input" placeholder="Nachricht" required>
+    <form class="input" action="/msg/{{ receiver }}" method="post" enctype="multipart/form-data">
+        <label for="file-upload" class="file-btn"
+            style="cursor: pointer; padding: 0 10px; font-size: 18px; color: #888;">
+            <i class="fa-solid fa-paperclip"></i>
+        </label>
+        <input id="file-upload" type="file" style="display:none;" onchange="uploadFile(this)">
 
-    <button type="submit" class="submit-btn">
-        <i class="fa-solid fa-paper-plane"></i>
-    </button>
-</form>
+        <input type="text" autocomplete="off" name="msg" id="msg-input" placeholder="Nachricht" required>
 
-<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
-<script src="/chat/static/js/chat.js"></script>
+        {% if group_id %}
+        <input type="hidden" name="group_id" value="{{ group_id }}">
+        {% endif %}
+
+        <button type="submit" class="submit-btn">
+            <i class="fa-solid fa-paper-plane"></i>
+        </button>
+    </form>
+
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="/chat/static/js/chat.js?v=8"></script>
 </body>
-</html>
+
+</html>

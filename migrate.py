@@ -38,16 +38,36 @@ try:
         else:
             print(f"[~] groups.{col} existiert bereits")
 
-    # 2) status-Spalte in msg
+    # 2) status & medien-Spalten in msg
+    for col, col_def in [
+        ("status", "VARCHAR(20) DEFAULT 'sent'"),
+        ("msg_type", "VARCHAR(20) DEFAULT 'text'"),
+        ("file_url", "VARCHAR(500) NULL"),
+        ("is_encrypted", "TINYINT(1) DEFAULT 0")
+    ]:
+        cur.execute("""
+            SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'msg' AND COLUMN_NAME = %s
+        """, (db_name, col))
+        if not cur.fetchone():
+            cur.execute(f"ALTER TABLE `msg` ADD COLUMN `{col}` {col_def}")
+            print(f"[OK] msg.{col} hinzugefügt")
+        else:
+            print(f"[~] msg.{col} existiert bereits")
+
+    # 3) group_messages Tabelle erstellen
     cur.execute("""
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'msg' AND COLUMN_NAME = 'status'
-    """, (db_name,))
-    if not cur.fetchone():
-        cur.execute("ALTER TABLE msg ADD COLUMN status VARCHAR(20) DEFAULT 'sent' NOT NULL")
-        print("[OK] msg.status hinzugefügt")
-    else:
-        print("[~] msg.status existiert bereits")
+        CREATE TABLE IF NOT EXISTS `group_messages` (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            group_id INT NOT NULL,
+            sender_id INT NOT NULL,
+            message TEXT,
+            msg_type VARCHAR(20) DEFAULT 'text',
+            file_url VARCHAR(500) NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    print("[OK] Tabelle `group_messages` geprüft/erstellt.")
 
     # 3) groups-Spalte in users (wenn nicht vorhanden)
     cur.execute("""
@@ -93,6 +113,19 @@ try:
         print("[OK] msg.file_url und msg.file_type hinzugefügt")
     else:
         print("[~] msg.file_url existiert bereits")
+
+    # 7) message_reactions Tabelle für Emoji-Reaktionen
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS `message_reactions` (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            message_id INT NOT NULL,
+            user_id INT NOT NULL,
+            emoji VARCHAR(32) NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY `unique_user_reaction` (`message_id`, `user_id`, `emoji`)
+        )
+    """)
+    print("[OK] Tabelle `message_reactions` geprüft/erstellt.")
 
     conn.commit()
     print("Migration erfolgreich abgeschlossen.")

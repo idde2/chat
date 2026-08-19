@@ -13,23 +13,39 @@ document.querySelectorAll('.time').forEach((e) => { formatTime(e) });
 
 const receiver = document.body.getAttribute('data-receiver');
 const myId = document.body.getAttribute('data-user');
+const groupId = document.body.getAttribute('data-group-id');
 
-socket.emit('join', { receiver: receiver });
+if (groupId) {
+    socket.emit('join', { group_id: groupId });
+} else {
+    socket.emit('join', { receiver: receiver });
 
-// Sende mark_read beim Laden der Seite
-if (myId && receiver) {
-    socket.emit('mark_read', { user_id: myId, sender_id: receiver });
+    // Sende mark_read beim Laden der Seite (nur Einzelchat)
+    if (myId && receiver) {
+        socket.emit('mark_read', { user_id: myId, sender_id: receiver });
+    }
+}
+
+// Entschlüssele beim Laden der Seite alle bereits vorhandenen Nachrichten-Texte
+async function decryptExistingMessages() {
+    const paragraphs = document.querySelectorAll('.message-wrapper p');
+    for (const p of paragraphs) {
+        if (p.textContent && p.textContent.startsWith('ENC:')) {
+            p.textContent = await decryptMessage(p.textContent);
+        }
+    }
 }
 
 // ------------------------ E2E Web Crypto API Helper ------------------------
 let e2eKey = null;
+
 async function initE2E() {
     try {
         if (window.crypto && window.crypto.subtle) {
-            // Web Crypto API verfügbar
+            const pairId = groupId ? `group_${groupId}` : [myId, receiver].sort().join('_');
             const keyMaterial = await window.crypto.subtle.digest(
                 'SHA-256',
-                new TextEncoder().encode(`eddi_chat_secret_${myId}_${receiver}`)
+                new TextEncoder().encode(`eddi_chat_secret_${pairId}`)
             );
             e2eKey = await window.crypto.subtle.importKey(
                 'raw',
@@ -38,12 +54,57 @@ async function initE2E() {
                 false,
                 ['encrypt', 'decrypt']
             );
+            console.log("E2E Schlüssel erfolgreich abgeleitet.");
         }
     } catch (e) {
-        console.warn("E2E Crypto initialization fallback active", e);
+        console.warn("E2E Crypto Fallback aktiv", e);
     }
 }
-initE2E();
+initE2E().then(decryptExistingMessages);
+
+async function encryptMessage(text) {
+    if (!e2eKey) return text;
+    try {
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const encoded = new TextEncoder().encode(text);
+        const encrypted = await window.crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv },
+            e2eKey,
+            encoded
+        );
+        const combined = new Uint8Array(iv.length + encrypted.byteLength);
+        combined.set(iv, 0);
+        combined.set(new Uint8Array(encrypted), iv.length);
+        return 'ENC:' + btoa(String.fromCharCode(...combined));
+    } catch (e) {
+        console.error("Verschlüsselungsfehler:", e);
+        return text;
+    }
+}
+
+async function decryptMessage(cipherText) {
+    if (!e2eKey || typeof cipherText !== 'string' || !cipherText.startsWith('ENC:')) {
+        return cipherText;
+    }
+    try {
+        const rawStr = atob(cipherText.slice(4));
+        const combined = new Uint8Array(rawStr.length);
+        for (let i = 0; i < rawStr.length; i++) {
+            combined[i] = rawStr.charCodeAt(i);
+        }
+        const iv = combined.slice(0, 12);
+        const data = combined.slice(12);
+        const decrypted = await window.crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: iv },
+            e2eKey,
+            data
+        );
+        return new TextDecoder().decode(decrypted);
+    } catch (e) {
+        console.warn("Entschlüsselungsfehler (Text ungültig oder Schlüssel weicht ab):", e);
+        return cipherText;
+    }
+}
 
 // ------------------------ File Upload Handler ------------------------
 async function uploadFile(inputElement) {
@@ -78,9 +139,61 @@ async function uploadFile(inputElement) {
     }
 }
 
-// ------------------------ Socket Events ------------------------
-socket.on('msg', (data) => {
+// ------------------------ Form Submit Handler (AJAX) ------------------------
+const chatForm = document.querySelector('form.input');
+if (chatForm) {
+    chatForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const inputEl = document.getElementById('msg-input');
+        if (!inputEl) return;
+        const text = inputEl.value.trim();
+        if (!text) return;
+
+        inputEl.value = '';
+
+        const encText = await encryptMessage(text);
+        const formData = new FormData();
+        formData.append("msg", encText);
+        if (groupId) {
+            formData.append("group_id", groupId);
+        }
+
+        let targetUrl = chatForm.getAttribute('action') || window.location.href;
+        if (!targetUrl.startsWith('/chat') && window.location.pathname.startsWith('/chat')) {
+            targetUrl = '/chat' + targetUrl;
+        }
+
+        try {
+            await fetch(targetUrl, {
+                method: "POST",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest"
+                },
+                body: formData
+            });
+        } catch (err) {
+            console.error("Fehler beim Senden der Nachricht:", err);
+        }
+    });
+}
+
+function scrollToBottom() {
     const container = document.querySelector('.container');
+    if (container) {
+        container.scrollTop = container.scrollHeight;
+    }
+}
+
+// Beim Laden der Seite direkt nach unten scrollen
+window.addEventListener('DOMContentLoaded', scrollToBottom);
+window.addEventListener('load', scrollToBottom);
+scrollToBottom();
+
+// ------------------------ Socket Events ------------------------
+socket.on('msg', async (data) => {
+    console.log("Empfangene Live-Nachricht:", data);
+    const container = document.querySelector('.container');
+    if (!container) return;
     const div = document.createElement('div');
 
     const isMe = (String(data.sender_id) === String(myId));
@@ -97,23 +210,31 @@ socket.on('msg', (data) => {
         }
     }
 
+    const clearContent = await decryptMessage(data.content);
     const statusHtml = isMe ? `<span class="read-status sent" style="font-size: 12px; font-weight: bold; margin-left: 4px;">✓</span>` : '';
+    const msgId = data.msg_id || 0;
+    if (msgId) div.setAttribute('data-msg-id', msgId);
 
-    div.innerHTML = `${mediaHtml}<p>${data.content}</p><div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;"><p data-time="${new Date().toISOString()}" class="time"></p>${statusHtml}</div>`;
+    const quickReactionsHtml = msgId ? `<div class="quick-reactions">
+        <span onclick="toggleReaction(${msgId}, '👍')">👍</span>
+        <span onclick="toggleReaction(${msgId}, '❤️')">❤️</span>
+        <span onclick="toggleReaction(${msgId}, '😂')">😂</span>
+        <span onclick="toggleReaction(${msgId}, '🔥')">🔥</span>
+    </div>` : '';
 
-    container.insertBefore(div, container.lastElementChild);
-    container.scrollTop = container.scrollHeight;
+    div.innerHTML = `${mediaHtml}<p>${clearContent}</p><div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;"><p data-time="${new Date().toISOString()}" class="time"></p>${statusHtml}</div>${quickReactionsHtml}`;
+
+    container.appendChild(div);
+    scrollToBottom();
 
     const time = div.querySelector('.time');
     formatTime(time);
 
-    // Wenn fremde Nachricht empfangen wird und wir im Chat sind -> mark_read senden
-    if (!isMe) {
+    if (!isMe && !groupId) {
         socket.emit('mark_read', { user_id: myId, sender_id: receiver });
     }
 });
 
-// Update der Haken bei Lesebestätigung
 socket.on('messages_read', (data) => {
     if (String(data.reader_id) === String(receiver)) {
         document.querySelectorAll('.message-wrapper.du .read-status').forEach(el => {
@@ -124,8 +245,113 @@ socket.on('messages_read', (data) => {
 });
 
 socket.on('connect', () => {
-    socket.emit('join', { receiver: receiver });
-    if (myId && receiver) {
-        socket.emit('mark_read', { user_id: myId, sender_id: receiver });
+    if (groupId) {
+        socket.emit('join', { group_id: groupId });
+    } else {
+        socket.emit('join', { receiver: receiver });
+        if (myId && receiver) {
+            socket.emit('mark_read', { user_id: myId, sender_id: receiver });
+        }
     }
-});
+});
+
+
+// ------------------------ Typing Indicator ------------------------
+const msgInput = document.getElementById('msg-input');
+let typingTimeout = null;
+
+if (msgInput) {
+    msgInput.addEventListener('input', () => {
+        if (!groupId && receiver) {
+            socket.emit('typing', { user_id: myId, receiver: receiver });
+
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                socket.emit('stop_typing', { user_id: myId, receiver: receiver });
+            }, 1500);
+        }
+    });
+}
+
+socket.on('reaction_update', (data) => {
+    const msgEl = document.querySelector(`[data-msg-id="${data.message_id}"]`);
+    if (!msgEl) return;
+
+    let reactionsBar = msgEl.querySelector('.reactions-bar');
+    if (!reactionsBar) {
+        reactionsBar = document.createElement('div');
+        reactionsBar.className = 'reactions-bar';
+        msgEl.appendChild(reactionsBar);
+    }
+
+    reactionsBar.innerHTML = '';
+    for (const [emoji, users] of Object.entries(data.reactions)) {
+        if (users.length > 0) {
+            const badge = document.createElement('span');
+            badge.className = 'reaction-badge';
+            badge.innerText = `${emoji} ${users.length}`;
+            badge.onclick = () => toggleReaction(data.message_id, emoji);
+            reactionsBar.appendChild(badge);
+        }
+    }
+});
+
+async function toggleReaction(msgId, emoji) {
+    try {
+        await fetch(`/api/messages/${msgId}/reactions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ emoji: emoji })
+        });
+    } catch (e) {
+        console.error("Fehler beim Senden der Reaktion", e);
+    }
+}
+
+async function openMediaGallery() {
+    const modal = document.getElementById('mediaGalleryModal');
+    if (!modal) return;
+
+    modal.classList.remove('hidden');
+    const grid = document.getElementById('galleryGrid');
+    grid.innerHTML = '<p style="color: var(--text-muted); text-align: center; grid-column: 1/-1;">Lade Medien...</p>';
+
+    const targetType = groupId ? 'group' : 'user';
+    const targetId = groupId ? groupId : receiver;
+
+    try {
+        const res = await fetch(`/api/chat/${targetType}/${targetId}/media`);
+        const data = await res.json();
+
+        if (data.code === 200 && data.media && data.media.length > 0) {
+            grid.innerHTML = data.media.map(item => {
+                if (item.file_type === 'image') {
+                    return `<div class="gallery-item"><a href="${item.file_url}" target="_blank"><img src="${item.file_url}" alt="Bild" loading="lazy"></a></div>`;
+                } else if (item.file_type === 'audio') {
+                    return `<div class="gallery-item"><a href="${item.file_url}" target="_blank"><i class="fa-solid fa-file-audio" style="font-size: 2rem; color: #10b981;"></i><br><span style="font-size:0.7rem;">Audio</span></a></div>`;
+                } else {
+                    return `<div class="gallery-item"><a href="${item.file_url}" target="_blank"><i class="fa-solid fa-file-lines" style="font-size: 2rem; color: #3b82f6;"></i><br><span style="font-size:0.7rem;">Dokument</span></a></div>`;
+                }
+            }).join('');
+        } else {
+            grid.innerHTML = '<p style="color: var(--text-muted); text-align: center; grid-column: 1/-1;">Keine Medien in diesem Chat vorhanden.</p>';
+        }
+    } catch (e) {
+        console.error("Fehler beim Laden der Galerie:", e);
+        grid.innerHTML = '<p style="color: #ef4444; text-align: center; grid-column: 1/-1;">Fehler beim Laden der Medien.</p>';
+    }
+}
+
+function closeMediaGallery() {
+    const modal = document.getElementById('mediaGalleryModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+const icons = document.getElementById('icons');
+const iconsUser = document.getElementById('icons-user');
+if (icons && iconsUser) {
+    icons.addEventListener('click', () => {
+        iconsUser.className = iconsUser.className === 'icons-user' ? 'icons-user show' : 'icons-user';
+    });
+}
+

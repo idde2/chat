@@ -38,7 +38,7 @@ body {
 .switch-label {
   width: 50px;
   height: 26px;
-  background: #444;
+  background: #555;
   border-radius: 50px;
   position: relative;
   cursor: pointer;
@@ -68,12 +68,13 @@ body {
 
 .form {
     top: 200px;
-    height: 10vw;
-    width: 15vw;
-    box-shadow: 0 0 10px rgba(0,15,15,0.5)
+    height: 150px;
+    width: 200px;
+    box-shadow: 0 0 10px rgba(0,15,15,0.5);
+    border-radius: 10px;
 }
 .form input {
-    position: relative;
+    position: relative;e
     left: 50%;
     transform: translateX(-50%) translateY(-50%);
     top: 50px;
@@ -86,11 +87,10 @@ body {
     border: 1px solid #ccc;
     background: transparent;
     color: white;
-
 }
 .form input[type="submit"]:hover {
     scale: 1.05;
-    background: rba(48,48,48,0.7);
+    background: rgba(48,48,48,0.7);
     transition: 0.5s;
 
 }

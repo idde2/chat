@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, redirect, session, make_response, jsonify, Response, abort
+from flask import Flask, render_template, request, redirect, session, make_response, jsonify, Response, abort, send_from_directory
+
 
 from flask_session import Session
 from flask_socketio import SocketIO, emit, join_room
@@ -15,7 +16,9 @@ from api import get_connection, set_config, get_conf, log, register_socketio, sq
 from backend import back
 
 import uuid
+import time
 from werkzeug.utils import secure_filename
+
 
 
 
@@ -26,7 +29,7 @@ path = str(get_conf("path"))
 session_dir = os.path.join(os.getcwd(), "flask_session")
 os.makedirs(session_dir, exist_ok=True)
 
-# Bereinige beschädigte oder 0-Byte Session-Dateien, die OSError in cachelib verursachen
+
 try:
     for fname in os.listdir(session_dir):
         fpath = os.path.join(session_dir, fname)
@@ -46,7 +49,7 @@ Session(app)
 
 app.register_blueprint(back, url_prefix="/api")
 
-socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
+socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*", path='/chat/socket.io')
 
 app.secret_key = "UDCuJKjkHJKFHKHE$(O(OVE(OWKLJJHjkHVRFHJKHGVRZEGHzV SRGFIUIOVHJKRJKJKFJR"
 register_socketio(socketio)
@@ -106,13 +109,36 @@ def index():
                 kontacts = [r[0] for r in rows if r[0]]
 
         try:
-            group_rows = sqlq("SELECT id, name FROM `groups` WHERE owner_id = %s OR members LIKE %s", (user_id, f"%{user_id}%"), "all")
+            # Try common schema: owner_id; fall back to owner if present. Also match members JSON/text via LIKE.
+            like_pattern = f"%{user_id}%"
+            group_rows = sqlq(
+                "SELECT id, name FROM `groups` WHERE owner_id = %s OR owner = %s OR members LIKE %s",
+                (user_id, user_id, like_pattern),
+                "all"
+            )
             if group_rows:
                 groups = [{"id": r[0], "name": r[1]} for r in group_rows]
         except Exception:
-            groups = []
+            try:
+                group_rows = sqlq("SELECT id, name FROM `groups` WHERE members LIKE %s", (like_pattern,), "all")
+                if group_rows:
+                    groups = [{"id": r[0], "name": r[1]} for r in group_rows]
+            except Exception:
+                groups = []
 
     return render_template("index.html", kontacts=kontacts, groups=groups)
+
+
+@app.route('/users_list')
+@app.route('/chat/users_list')
+def users_list():
+    user = session.get('user')
+    if not user:
+        return jsonify({"code":401, "users": []})
+
+    rows = sqlq("SELECT id, username FROM users WHERE username != %s ORDER BY username LIMIT 500", (user,), "all")
+    users = [{"id": r[0], "username": r[1]} for r in rows] if rows else []
+    return jsonify({"code":200, "users": users})
 
 
 
@@ -123,25 +149,105 @@ def chat(receiver):
     id_u = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
     id_r = sqlq("SELECT id FROM users WHERE username = %s", (receiver,), "one")[0]
 
-    # Nachrichten abrufen inklusive status, file_url, file_type
     msg = sqlq(
-        """SELECT id, content, time, COALESCE(edited,0), status, file_url, file_type 
-           FROM msg 
-           WHERE (id = %s AND receiver = %s) OR (id = %s AND receiver = %s) 
-           ORDER BY time ASC""",
+        """SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id
+           FROM msg m
+           LEFT JOIN users u ON u.id = m.id
+           WHERE (m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s)
+           ORDER BY m.time ASC""",
         (id_u, id_r, id_r, id_u), "all"
     )
 
-    # Automatisch empfangene ungelesene Nachrichten als 'read' markieren
     sqlq("UPDATE msg SET status = 'read' WHERE id = %s AND receiver = %s AND status != 'read'", (id_r, id_u), "none")
 
     return render_template("chat.html", user=id_u, receiver=id_r, receiver_name=receiver, msg=msg)
 
+
+@app.route('/group/<int:conv_id>')
+def group_chat(conv_id):
+    user = session["user"] if session.get("user") else ""
+    if not user:
+        return redirect("/" + path + "/login")
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
+
+    # group info
+    grp = sqlq("SELECT id, name, members FROM `groups` WHERE id = %s", (conv_id,), "one")
+    if not grp:
+        return redirect("/" + path)
+    group_name = grp[1]
+    raw_members = grp[2]
+
+    members = []
+    try:
+        members = json.loads(raw_members) if raw_members else []
+    except Exception:
+        try:
+            members = ast.literal_eval(raw_members) if raw_members else []
+        except Exception:
+
+            try:
+                members = [int(x.strip()) for x in str(raw_members).split(",") if x.strip()]
+            except Exception:
+                members = []
+
+    participant_list = []
+    if members:
+        try:
+            format_strings = ','.join(['%s'] * len(members))
+            rows = sqlq(f"SELECT id, username FROM users WHERE id IN ({format_strings})", tuple(members), "all")
+            if rows:
+                participant_list = [{"id": r[0], "username": r[1]} for r in rows]
+        except Exception:
+            participant_list = []
+
+    rows = sqlq(
+        "SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.conv = %s ORDER BY m.time ASC",
+        (conv_id,), "all"
+    )
+
+    return render_template("chat.html", user=my_id, receiver=0, receiver_name=group_name, msg=rows, group_id=conv_id, participants=participant_list)
+
+
+@app.route('/group/<int:gid>/add/<int:uid>')
+def add_member(gid, uid):
+    user = session.get("user")
+    if not user:
+        return redirect("/" + path + "/login")
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
+
+    # member list
+    row = sqlq("SELECT members FROM `groups` WHERE id = %s", (gid,), "one")
+    if not row:
+        return redirect(request.referrer or ("/" + path))
+
+    try:
+        members = json.loads(row[0]) if row[0] else []
+    except Exception:
+        try:
+            members = ast.literal_eval(row[0]) if row[0] else []
+        except Exception:
+            members = []
+
+    if uid not in members:
+        members.append(uid)
+        sqlq("UPDATE `groups` SET members = %s WHERE id = %s", (json.dumps(members), gid), "none")
+
+    return redirect(request.referrer or ("/" + path + "/group/" + str(gid)))
+
 @app.route("/kontakt/<art>/<id>")
 @app.route("/kontakt")
 def kontakt(art=None,id=None):
-
     user = session["user"] if session.get("user") else ""
+
+    if art == "del":
+        kontakte = ast.literal_eval(sqlq("SELECT kontacts FROM users WHERE id = %s", (sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0],), "one")[0] or "[]")
+        kontakte.remove(int(id))
+        sqlq("UPDATE users SET kontacts = %s WHERE username = %s", (str(kontakte), user), "none")
+        return redirect("/" + path)
+
+
     id_u = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
 
     if id == None:
@@ -162,24 +268,63 @@ def kontakt(art=None,id=None):
 @app.route("/msg/<receiver>",methods=["POST"])
 @app.route("/msg/<receiver>/<msg>")
 def msg(receiver,msg=None):
-    user = session["user"] if session.get("user") else ""
+    user = session.get("user") if session.get("user") else ""
 
-    if msg == None:
-        msg = str(request.form.get("msg"))
+    group_id = request.form.get("group_id") or request.form.get("conv")
 
-    id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
-    receiver_name = sqlq("SELECT username FROM users WHERE id = %s", (receiver,), "one")[0]
+    if msg is None:
+        msg = str(request.form.get("msg") or "")
 
-    ids = sorted([int(id), int(receiver)])
+    my = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+    if not my:
+        return redirect("/" + path + "/login")
+    my_id = my[0]
+
+    if group_id:
+        try:
+            gid = int(group_id)
+        except Exception:
+            return jsonify({"code":400, "error":"Ungültige group_id"}), 400
+
+        sqlq(
+            "INSERT INTO msg (id, receiver, conv, content, status) VALUES (%s, %s, %s, %s, 'sent')",
+            (my_id, 0, gid, msg), "none"
+        )
+        msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
+        msg_id = msg_id_row[0] if msg_id_row else 0
+
+        socketio.emit("msg", {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id}, room=f"group_{gid}")
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json or request.headers.get("Accept", "").find("application/json") != -1:
+            return jsonify({"code": 200, "message": "Gesendet", "msg_id": msg_id})
+        return redirect("/" + path + "/group/" + str(gid))
+    try:
+        recv_id = int(receiver)
+        row = sqlq("SELECT username FROM users WHERE id = %s", (recv_id,), "one")
+        if not row:
+            return redirect("/" + path)
+        receiver_name = row[0]
+    except ValueError:
+        row = sqlq("SELECT id FROM users WHERE username = %s", (receiver,), "one")
+        if not row:
+            return redirect("/" + path)
+        recv_id = row[0]
+        receiver_name = receiver
+
+    ids = sorted([int(my_id), int(recv_id)])
     room = f"{ids[0]}_{ids[1]}"
 
-    sqlq("INSERT INTO msg (id, receiver, content, status) VALUES (%s, %s, %s, 'sent')", (id, receiver, msg), "none")
+    sqlq("INSERT INTO msg (id, receiver, content, status) VALUES (%s, %s, %s, 'sent')", (my_id, recv_id, msg), "none")
+    msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
+    msg_id = msg_id_row[0] if msg_id_row else 0
 
-    socketio.emit("msg", {"content": msg, "sender": user, "sender_id": id, "status": "sent"}, room=room)
+    socketio.emit("msg", {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id}, room=room)
+
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json or request.headers.get("Accept", "").find("application/json") != -1:
+        return jsonify({"code": 200, "message": "Gesendet", "msg_id": msg_id})
 
     return redirect("/" + path + "/chat/" + receiver_name + "")
 
-# ------------------------ Feature: File-Upload ------------------------
+# ------------------------ File-Upload ------------------------
 @app.route("/upload", methods=["POST"])
 def upload_file():
     user = session.get("user")
@@ -197,7 +342,6 @@ def upload_file():
     filename = secure_filename(file.filename)
     ext = os.path.splitext(filename)[1].lower()
 
-    # Bestimme Dateityp (image, audio, document)
     if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
         file_type = 'image'
     elif ext in ['.mp3', '.wav', '.ogg', '.m4a', '.webm']:
@@ -246,32 +390,103 @@ def upload_file():
 
     return jsonify({"code": 200, "file_url": file_url, "file_type": file_type})
 
-# ------------------------ Feature: Gruppen-Chat ------------------------
+# ------------------------ group Chat ------------------------
 @app.route("/create_group", methods=["POST"])
+@app.route('/chat/create_group', methods=['POST'])
 def create_group():
     user = session.get("user")
     if not user:
-        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+        return redirect("/" + path + "/login")
 
     data = request.get_json(silent=True) or {}
-    group_name = data.get("name", "").strip()
-    member_ids = data.get("members", [])
+    group_name = str(data.get("name", "")).strip()
+    members = data.get("members", [])
 
     if not group_name:
         return jsonify({"code": 400, "error": "Gruppenname erforderlich"}), 400
 
+    try:
+        my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
+    except Exception:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    try:
+        members = [int(m) for m in (members or [])]
+    except Exception:
+        members = []
+
+    if my_id not in members:
+        members.append(my_id)
+
+    members_json = json.dumps(members)
+    try:
+        sqlq("INSERT INTO `groups` (name, owner_id, members) VALUES (%s, %s, %s)", (group_name, my_id, members_json), "none")
+    except Exception as e:
+        try:
+            sqlq("INSERT INTO `groups` (name, owner, members) VALUES (%s, %s, %s)", (group_name, my_id, members_json), "none")
+        except Exception as e2:
+            raise
+
+    gid_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
+    gid = gid_row[0] if gid_row else None
+
+    return jsonify({"code": 201, "group": {"id": gid, "name": group_name}}), 201
+
+
+@app.route("/api/messages/<int:msg_id>/reactions", methods=["POST"])
+def session_toggle_reaction(msg_id):
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
     my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
-    if my_id not in member_ids:
-        member_ids.append(my_id)
+    data = request.get_json(silent=True) or {}
+    emoji = str(data.get("emoji", "")).strip()
 
-    members_json = json.dumps(member_ids)
-    sqlq("INSERT INTO `groups` (name, owner_id, members) VALUES (%s, %s, %s)", (group_name, my_id, members_json), "none")
+    if not emoji:
+        return jsonify({"code": 400, "error": "Emoji erforderlich"}), 400
 
-    group_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
-    group_id = group_id_row[0] if group_id_row else None
+    existing = sqlq(
+        "SELECT id FROM message_reactions WHERE message_id = %s AND user_id = %s AND emoji = %s",
+        (msg_id, my_id, emoji), "one"
+    )
 
-    return jsonify({"code": 201, "group": {"id": group_id, "name": group_name}})
+    if existing:
+        sqlq("DELETE FROM message_reactions WHERE id = %s", (existing[0],), "none")
+        action = "removed"
+    else:
+        sqlq("INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (%s, %s, %s)",
+             (msg_id, my_id, emoji), "none")
+        action = "added"
 
+    rows = sqlq("SELECT emoji, user_id FROM message_reactions WHERE message_id = %s", (msg_id,), "all")
+    reactions_summary = {}
+    if rows:
+        for r_emoji, r_uid in rows:
+            if r_emoji not in reactions_summary:
+                reactions_summary[r_emoji] = []
+            reactions_summary[r_emoji].append(r_uid)
+
+    msg_row = sqlq("SELECT id, receiver, conv FROM msg WHERE msg_id = %s LIMIT 1", (msg_id,), "one")
+    if msg_row:
+        s_id, r_id, c_id = msg_row[0], msg_row[1], msg_row[2]
+        if c_id:
+            room = f"group_{c_id}"
+        else:
+            ids = sorted([int(s_id), int(r_id)])
+            room = f"{ids[0]}_{ids[1]}"
+        socketio.emit("reaction_update", {"message_id": msg_id, "reactions": reactions_summary}, room=room)
+
+    return jsonify({"code": 200, "action": action, "reactions": reactions_summary})
+
+    receiver_name = sqlq("SELECT username FROM users WHERE id = %s", (receiver,), "one")[0]
+
+    ids = sorted([int(my_id), int(receiver)])
+    room = f"{ids[0]}_{ids[1]}"
+
+    sqlq("INSERT INTO msg (id, receiver, content, status) VALUES (%s, %s, %s, 'sent')", (my_id, receiver, msg), "none")
+
+    socketio.emit("msg", {"content": msg, "sender": user, "sender_id": my_id, "status": "sent"}, room=room)
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -287,7 +502,7 @@ def register():
             img = Image.new('RGB', (1000, 1000), (127, 127, 127))
             draw = ImageDraw.Draw(img)
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 100)
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 300)
                 draw.text((400, 450), name, fill=(255, 0, 0), font=font)
             except:
                 draw.text((400, 450), name, fill=(255, 0, 0))
@@ -325,8 +540,40 @@ def login():
     return render_template("login.html")
 
 
+@app.route('/chat/profile/<path:filename>')
+def profile_image(filename):
+    profile_dir = os.path.join(app.root_path, 'static', 'img', 'profil')
+    os.makedirs(profile_dir, exist_ok=True)
+
+    safe_name = secure_filename(filename)
+    if not safe_name.lower().endswith('.png'):
+        clean_username = safe_name
+        safe_name = safe_name + '.png'
+    else:
+        clean_username = safe_name[:-4]
+
+    file_path = os.path.join(profile_dir, safe_name)
+    if not os.path.exists(file_path):
+        img = Image.new('RGB', (200, 200), (99, 102, 241))
+        draw = ImageDraw.Draw(img)
+        initial = clean_username[0].upper() if clean_username else "?"
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 90)
+            draw.text((70, 45), initial, fill=(255, 255, 255), font=font)
+        except Exception:
+            draw.text((90, 80), initial, fill=(255, 255, 255))
+        img.save(file_path)
+
+    response = make_response(send_from_directory(profile_dir, safe_name))
+    response.headers['Cache-Control'] = 'public, max-age=86400, must-revalidate'
+    return response
+
+
+
 @app.route("/logout")
+
 def logout():
+
     session["auth"] = False
     session["user"] = ""
     session.clear()
@@ -334,7 +581,7 @@ def logout():
     return redirect("/" + path + "/login")
 
 
-# ------------------------ Feature 1: Nachrichten-Suche ------------------------
+# ------------------------ Search ------------------------
 @app.route("/search")
 def search():
     q = request.args.get("q", "").strip()
@@ -375,7 +622,7 @@ def search():
     return jsonify({"results": results})
 
 
-# ------------------------ Feature 2: Typing Event ------------------------
+# ------------------------ Typing Event ------------------------
 @socketio.on('typing')
 def on_typing(data):
     my_id = data.get("user_id")
@@ -397,7 +644,7 @@ def on_stop_typing(data):
     emit("stop_typing", {"user_id": my_id}, room=room, include_self=False)
 
 
-# ------------------------ Feature 3: Read Receipts ------------------------
+# ------------------------ Read Receipts ------------------------
 @socketio.on('mark_read')
 def on_mark_read(data):
     my_id = data.get("user_id")
@@ -412,7 +659,7 @@ def on_mark_read(data):
     emit("messages_read", {"reader_id": my_id, "sender_id": sender_id}, room=room)
 
 
-# ------------------------ Feature 4: Nachricht bearbeiten & löschen ------------------------
+# ------------------------  message edit & del ------------------------
 @app.route("/edit_msg", methods=["POST"])
 def edit_msg():
     data = request.get_json(silent=True) or {}
@@ -469,7 +716,90 @@ def delete_msg():
     return jsonify({"code": 200})
 
 
+# ------------------------ File Upload Endpoint ------------------------
+@app.route("/api/upload", methods=["POST"])
+def handle_api_upload():
+    if "user" not in session or not session.get("auth"):
+
+        return jsonify({"code": 401, "error": "Nicht authentifiziert"}), 401
+
+    if "file" not in request.files:
+        return jsonify({"code": 400, "error": "Keine Datei gesendet"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"code": 400, "error": "Leerer Dateiname"}), 400
+
+    filename = secure_filename(file.filename)
+    if not filename:
+        filename = f"upload_{int(time.time())}.dat"
+
+    # Ordner sicherstellen
+    upload_dir = os.path.join(app.root_path, "static", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    unique_name = f"{uuid.uuid4().hex[:8]}_{filename}"
+    file_path = os.path.join(upload_dir, unique_name)
+    file.save(file_path)
+
+    file_url = f"/chat/static/uploads/{unique_name}"
+
+
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in [".png", ".jpg", ".jpeg", ".gif", ".webp"]:
+        msg_type = "image"
+    elif ext in [".mp3", ".ogg", ".wav", ".m4a", ".webm"]:
+        msg_type = "audio"
+    else:
+        msg_type = "document"
+
+    return jsonify({
+        "code": 200,
+        "file_url": file_url,
+        "filename": filename,
+        "msg_type": msg_type
+    })
+
+
+# ------------------------ Group Creation Endpoint ------------------------
+@app.route("/api/groups/create", methods=["POST"])
+def handle_api_create_group():
+    if "user" not in session or not session.get("auth"):
+
+        return jsonify({"code": 401, "error": "Nicht authentifiziert"}), 401
+
+    data = request.get_json(silent=True) or {}
+    group_name = data.get("name", "").strip()
+    member_ids = data.get("members", [])
+
+    if not group_name:
+        return jsonify({"code": 400, "error": "Gruppenname erforderlich"}), 400
+
+    user_name = session.get("user")
+    owner_row = sqlq("SELECT id FROM users WHERE username = %s", (user_name,), "one")
+    if not owner_row:
+        return jsonify({"code": 401, "error": "User nicht gefunden"}), 401
+
+    owner_id = owner_row[0]
+
+    if owner_id not in member_ids:
+        member_ids.append(owner_id)
+
+    members_json = json.dumps(member_ids)
+
+    sqlq("INSERT INTO `groups` (name, owner_id, members) VALUES (%s, %s, %s)",
+         (group_name, owner_id, members_json), "none")
+
+    group_row = sqlq("SELECT id FROM `groups` WHERE name = %s AND owner_id = %s ORDER BY id DESC LIMIT 1",
+                     (group_name, owner_id), "one")
+
+    group_id = group_row[0] if group_row else 0
+
+    return jsonify({"code": 200, "group_id": group_id, "name": group_name})
+
+
 # ------------------------ Socket.IO Events ------------------------
+
 @socketio.on('join')
 def on_join(data):
     token = data.get("token")
@@ -491,7 +821,11 @@ def on_join(data):
 
         group_id = data.get("group_id")
         if group_id:
-            join_room(f"group_{group_id}")
+            try:
+                gid = int(group_id)
+                join_room(f"group_{gid}")
+            except Exception:
+                pass
             return
 
         target_id = data.get("receiver")
@@ -499,7 +833,16 @@ def on_join(data):
             return
 
         try:
-            ids = sorted([int(my_id), int(target_id)])
+            try:
+                target_user_id = int(target_id)
+            except ValueError:
+                target_row = sqlq("SELECT id FROM users WHERE username = %s", (str(target_id),), "one")
+                if target_row:
+                    target_user_id = target_row[0]
+                else:
+                    return
+
+            ids = sorted([int(my_id), int(target_user_id)])
             room = f"{ids[0]}_{ids[1]}"
             join_room(room)
         except ValueError:
@@ -518,7 +861,7 @@ def on_connect():
     user = session.get("user")
     if user:
         online_users.add(user)
-        socketio.emit("online_update", {"users": list(online_users)})
+    socketio.emit("online_update", {"users": list(online_users)})
 
 @socketio.on('disconnect')
 def on_disconnect():

@@ -466,3 +466,91 @@ def api_groups():
             })
     return jsonify({"code": 200, "groups": groups})
 
+
+# -------------------------------------------------------
+# Route: POST /api/messages/<int:msg_id>/reactions
+# -------------------------------------------------------
+@back.route("/messages/<int:msg_id>/reactions", methods=["POST"])
+@jwt_required
+def toggle_reaction(msg_id):
+    my_id = request.jwt_user_id
+    data = request.get_json(silent=True) or {}
+    emoji = str(data.get("emoji", "")).strip()
+
+    if not emoji:
+        return jsonify({"code": 400, "error": "Emoji erforderlich"}), 400
+
+    # Prüfe ob Reaktion bereits existiert
+    existing = sqlq(
+        "SELECT id FROM message_reactions WHERE message_id = %s AND user_id = %s AND emoji = %s",
+        (msg_id, my_id, emoji), "one"
+    )
+
+    if existing:
+        sqlq("DELETE FROM message_reactions WHERE id = %s", (existing[0],), "none")
+        action = "removed"
+    else:
+        sqlq("INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (%s, %s, %s)",
+             (msg_id, my_id, emoji), "none")
+        action = "added"
+
+    # Hole alle Reaktionen für diese Nachricht
+    rows = sqlq("SELECT emoji, user_id FROM message_reactions WHERE message_id = %s", (msg_id,), "all")
+    reactions_summary = {}
+    if rows:
+        for r_emoji, r_uid in rows:
+            if r_emoji not in reactions_summary:
+                reactions_summary[r_emoji] = []
+            reactions_summary[r_emoji].append(r_uid)
+
+    from api import socketio as sio
+    if sio:
+        # Finde Raum/Chat heraus
+        msg_row = sqlq("SELECT id, receiver, conv FROM msg WHERE msg_id = %s OR id = %s LIMIT 1", (msg_id, msg_id), "one")
+        if msg_row:
+            s_id, r_id, c_id = msg_row[0], msg_row[1], msg_row[2]
+            if c_id:
+                room = f"group_{c_id}"
+            else:
+                ids = sorted([int(s_id), int(r_id)])
+                room = f"{ids[0]}_{ids[1]}"
+            sio.emit("reaction_update", {"message_id": msg_id, "reactions": reactions_summary}, room=room)
+
+    return jsonify({"code": 200, "action": action, "reactions": reactions_summary})
+
+
+# -------------------------------------------------------
+# Route: GET /api/chat/<target_type>/<target_id>/media
+# -------------------------------------------------------
+@back.route("/chat/<string:target_type>/<int:target_id>/media")
+@jwt_required
+def get_chat_media(target_type, target_id):
+    my_id = request.jwt_user_id
+
+    if target_type == "group":
+        rows = sqlq(
+            "SELECT id, content, file_url, file_type, time FROM msg WHERE conv = %s AND file_url IS NOT NULL ORDER BY time DESC",
+            (target_id,), "all"
+        )
+    else:
+        rows = sqlq(
+            """SELECT id, content, file_url, file_type, time FROM msg 
+               WHERE ((id = %s AND receiver = %s) OR (id = %s AND receiver = %s)) 
+               AND file_url IS NOT NULL ORDER BY time DESC""",
+            (my_id, target_id, target_id, my_id), "all"
+        )
+
+    media_items = []
+    if rows:
+        for r in rows:
+            media_items.append({
+                "sender_id": r[0],
+                "filename": r[1],
+                "file_url": r[2],
+                "file_type": r[3],
+                "time": str(r[4])
+            })
+
+    return jsonify({"code": 200, "media": media_items})
+
+
