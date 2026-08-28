@@ -6,7 +6,7 @@ function formatTime(element) {
     const raw = element.getAttribute('data-time');
     if (!raw) return;
     const date = new Date(raw);
-    element.innerHTML = date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    element.innerHTML = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 document.querySelectorAll('.time').forEach((e) => { formatTime(e) });
@@ -20,13 +20,11 @@ if (groupId) {
 } else {
     socket.emit('join', { receiver: receiver });
 
-    // Sende mark_read beim Laden der Seite (nur Einzelchat)
     if (myId && receiver) {
         socket.emit('mark_read', { user_id: myId, sender_id: receiver });
     }
 }
 
-// Entschlüssele beim Laden der Seite alle bereits vorhandenen Nachrichten-Texte
 async function decryptExistingMessages() {
     const paragraphs = document.querySelectorAll('.message-wrapper p');
     for (const p of paragraphs) {
@@ -184,7 +182,6 @@ function scrollToBottom() {
     }
 }
 
-// Beim Laden der Seite direkt nach unten scrollen
 window.addEventListener('DOMContentLoaded', scrollToBottom);
 window.addEventListener('load', scrollToBottom);
 scrollToBottom();
@@ -273,8 +270,8 @@ if (msgInput) {
     });
 }
 
-socket.on('reaction_update', (data) => {
-    const msgEl = document.querySelector(`[data-msg-id="${data.message_id}"]`);
+function updateReactionsUI(messageId, reactions) {
+    const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);
     if (!msgEl) return;
 
     let reactionsBar = msgEl.querySelector('.reactions-bar');
@@ -285,24 +282,39 @@ socket.on('reaction_update', (data) => {
     }
 
     reactionsBar.innerHTML = '';
-    for (const [emoji, users] of Object.entries(data.reactions)) {
-        if (users.length > 0) {
-            const badge = document.createElement('span');
-            badge.className = 'reaction-badge';
-            badge.innerText = `${emoji} ${users.length}`;
-            badge.onclick = () => toggleReaction(data.message_id, emoji);
-            reactionsBar.appendChild(badge);
+    if (reactions) {
+        for (const [emoji, users] of Object.entries(reactions)) {
+            if (users && users.length > 0) {
+                const badge = document.createElement('span');
+                badge.className = 'reaction-badge';
+                badge.innerText = `${emoji} ${users.length}`;
+                badge.onclick = () => toggleReaction(messageId, emoji);
+                reactionsBar.appendChild(badge);
+            }
         }
+    }
+}
+
+socket.on('reaction_update', (data) => {
+    if (data && data.message_id && data.reactions) {
+        updateReactionsUI(data.message_id, data.reactions);
     }
 });
 
+const getApiPrefix = () => window.location.pathname.startsWith('/chat') ? '/chat' : '';
+
 async function toggleReaction(msgId, emoji) {
+    if (!msgId) return;
     try {
-        await fetch(`/api/messages/${msgId}/reactions`, {
+        const res = await fetch(`${getApiPrefix()}/reactions/${msgId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ emoji: emoji })
         });
+        const data = await res.json();
+        if (data && data.reactions) {
+            updateReactionsUI(msgId, data.reactions);
+        }
     } catch (e) {
         console.error("Fehler beim Senden der Reaktion", e);
     }
@@ -320,17 +332,21 @@ async function openMediaGallery() {
     const targetId = groupId ? groupId : receiver;
 
     try {
-        const res = await fetch(`/api/chat/${targetType}/${targetId}/media`);
+        const res = await fetch(`${getApiPrefix()}/media/${targetType}/${targetId}`);
         const data = await res.json();
 
         if (data.code === 200 && data.media && data.media.length > 0) {
             grid.innerHTML = data.media.map(item => {
-                if (item.file_type === 'image') {
-                    return `<div class="gallery-item"><a href="${item.file_url}" target="_blank"><img src="${item.file_url}" alt="Bild" loading="lazy"></a></div>`;
-                } else if (item.file_type === 'audio') {
-                    return `<div class="gallery-item"><a href="${item.file_url}" target="_blank"><i class="fa-solid fa-file-audio" style="font-size: 2rem; color: #10b981;"></i><br><span style="font-size:0.7rem;">Audio</span></a></div>`;
+                const url = item.file_url || '';
+                const isImg = item.file_type === 'image' || url.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+                const isAudio = item.file_type === 'audio' || url.match(/\.(mp3|wav|ogg|m4a|webm)$/i);
+
+                if (isImg) {
+                    return `<div class="gallery-item"><a href="${url}" target="_blank"><img src="${url}" alt="Bild" loading="lazy"></a></div>`;
+                } else if (isAudio) {
+                    return `<div class="gallery-item"><a href="${url}" target="_blank"><i class="fa-solid fa-file-audio" style="font-size: 2rem; color: #10b981;"></i><br><span style="font-size:0.7rem; display:block; margin-top:4px;">Audio</span></a></div>`;
                 } else {
-                    return `<div class="gallery-item"><a href="${item.file_url}" target="_blank"><i class="fa-solid fa-file-lines" style="font-size: 2rem; color: #3b82f6;"></i><br><span style="font-size:0.7rem;">Dokument</span></a></div>`;
+                    return `<div class="gallery-item"><a href="${url}" target="_blank"><i class="fa-solid fa-file-lines" style="font-size: 2rem; color: #3b82f6;"></i><br><span style="font-size:0.7rem; display:block; margin-top:4px;">Dokument</span></a></div>`;
                 }
             }).join('');
         } else {
@@ -354,4 +370,4 @@ if (icons && iconsUser) {
         iconsUser.className = iconsUser.className === 'icons-user' ? 'icons-user show' : 'icons-user';
     });
 }
-
+

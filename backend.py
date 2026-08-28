@@ -43,22 +43,31 @@ def jwt_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return jsonify({"code": 401, "error": "Kein Token angegeben"}), 401
+        if auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+            try:
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                request.jwt_user_id = int(payload["sub"])
+                request.jwt_username = payload["username"]
+                return f(*args, **kwargs)
+            except jwt.ExpiredSignatureError:
+                return jsonify({"code": 401, "error": "Token abgelaufen"}), 401
+            except jwt.InvalidTokenError:
+                return jsonify({"code": 401, "error": "Ungültiger Token"}), 401
+            except Exception:
+                return jsonify({"code": 401, "error": "Auth Fehler"}), 401
 
-        token = auth_header.split(" ", 1)[1]
-        try:
-            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        except jwt.ExpiredSignatureError:
-            return jsonify({"code": 401, "error": "Token abgelaufen"}), 401
-        except jwt.InvalidTokenError as e:
-            return jsonify({"code": 401, "error": "Ungültiger Token"}), 401
-        except Exception as e:
-            return jsonify({"code": 401, "error": "Auth Fehler"}), 401
+        # Session-Fallback für Web-Interface
+        from flask import session
+        user = session.get("user")
+        if user and session.get("auth"):
+            row = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+            if row:
+                request.jwt_user_id = row[0]
+                request.jwt_username = user
+                return f(*args, **kwargs)
 
-        request.jwt_user_id = int(payload["sub"])
-        request.jwt_username = payload["username"]
-        return f(*args, **kwargs)
+        return jsonify({"code": 401, "error": "Kein Token angegeben"}), 401
     return decorated
 
 
@@ -506,15 +515,16 @@ def toggle_reaction(msg_id):
     from api import socketio as sio
     if sio:
         # Finde Raum/Chat heraus
-        msg_row = sqlq("SELECT id, receiver, conv FROM msg WHERE msg_id = %s OR id = %s LIMIT 1", (msg_id, msg_id), "one")
+        msg_row = sqlq("SELECT id, receiver, conv FROM msg WHERE msg_id = %s LIMIT 1", (msg_id,), "one")
         if msg_row:
             s_id, r_id, c_id = msg_row[0], msg_row[1], msg_row[2]
             if c_id:
-                room = f"group_{c_id}"
+                sio.emit("reaction_update", {"message_id": msg_id, "reactions": reactions_summary}, room=f"group_{c_id}")
             else:
                 ids = sorted([int(s_id), int(r_id)])
-                room = f"{ids[0]}_{ids[1]}"
-            sio.emit("reaction_update", {"message_id": msg_id, "reactions": reactions_summary}, room=room)
+                sio.emit("reaction_update", {"message_id": msg_id, "reactions": reactions_summary}, room=f"{ids[0]}_{ids[1]}")
+                sio.emit("reaction_update", {"message_id": msg_id, "reactions": reactions_summary}, room=f"user_{s_id}")
+                sio.emit("reaction_update", {"message_id": msg_id, "reactions": reactions_summary}, room=f"user_{r_id}")
 
     return jsonify({"code": 200, "action": action, "reactions": reactions_summary})
 
@@ -529,14 +539,15 @@ def get_chat_media(target_type, target_id):
 
     if target_type == "group":
         rows = sqlq(
-            "SELECT id, content, file_url, file_type, time FROM msg WHERE conv = %s AND file_url IS NOT NULL ORDER BY time DESC",
+            "SELECT msg_id, content, file_url, file_type, time FROM msg WHERE conv = %s AND file_url IS NOT NULL AND file_url != '' ORDER BY time DESC",
             (target_id,), "all"
         )
     else:
         rows = sqlq(
-            """SELECT id, content, file_url, file_type, time FROM msg 
+            """SELECT msg_id, content, file_url, file_type, time FROM msg 
                WHERE ((id = %s AND receiver = %s) OR (id = %s AND receiver = %s)) 
-               AND file_url IS NOT NULL ORDER BY time DESC""",
+                 AND (conv IS NULL OR conv = 0)
+                 AND file_url IS NOT NULL AND file_url != '' ORDER BY time DESC""",
             (my_id, target_id, target_id, my_id), "all"
         )
 
@@ -544,7 +555,7 @@ def get_chat_media(target_type, target_id):
     if rows:
         for r in rows:
             media_items.append({
-                "sender_id": r[0],
+                "msg_id": r[0],
                 "filename": r[1],
                 "file_url": r[2],
                 "file_type": r[3],

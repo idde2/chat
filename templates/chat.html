@@ -83,6 +83,15 @@
                 </span>
                 {% endif %}
             </div>
+            <div class="reactions-bar">
+                {% if reactions_map and msg_id in reactions_map %}
+                {% for emoji, users in reactions_map[msg_id].items() %}
+                {% if users|length > 0 %}
+                <span class="reaction-badge" onclick="toggleReaction({{ msg_id }}, '{{ emoji }}')">{{ emoji }} {{ users|length }}</span>
+                {% endif %}
+                {% endfor %}
+                {% endif %}
+            </div>
             <div class="quick-reactions">
                 <span onclick="toggleReaction({{ msg_id }}, '👍')">👍</span>
                 <span onclick="toggleReaction({{ msg_id }}, '❤️')">❤️</span>
