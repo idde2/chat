@@ -384,4 +384,477 @@ body {
 @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
-}
+}
+
+/* ======================== Reply Preview Bar ======================== */
+.reply-preview-bar {
+    position: fixed;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(92%, 720px);
+    background: rgba(30, 41, 59, 0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border-light);
+    border-left: 3px solid var(--accent-emerald);
+    border-radius: 12px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    z-index: 101;
+    animation: slideUp 0.2s ease;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.reply-preview-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.reply-preview-content > i {
+    color: var(--accent-emerald);
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.reply-preview-text {
+    min-width: 0;
+}
+
+.reply-preview-text strong {
+    font-size: 0.8rem;
+    color: var(--accent-emerald);
+    display: block;
+}
+
+.reply-preview-text p {
+    margin: 2px 0 0 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 50vw;
+}
+
+.reply-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.reply-close-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* ======================== Quote Box (in messages) ======================== */
+.quote-box {
+    background: rgba(0, 0, 0, 0.2);
+    border-left: 3px solid var(--accent-emerald);
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    font-size: 0.8rem;
+}
+
+.quote-box:hover {
+    background: rgba(0, 0, 0, 0.35);
+}
+
+.quote-box-sender {
+    font-weight: 600;
+    color: var(--accent-emerald);
+    font-size: 0.75rem;
+}
+
+.quote-box-text {
+    color: rgba(255, 255, 255, 0.7);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+    margin-top: 1px;
+}
+
+/* ======================== Highlight Flash (scroll-to-message) ======================== */
+@keyframes pulseHighlight {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+    50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0.2); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.highlight-flash {
+    animation: pulseHighlight 1.2s ease-out;
+    outline: 2px solid var(--accent-emerald);
+    outline-offset: 2px;
+    border-radius: 16px;
+}
+
+/* Reply action in quick-reactions */
+.reply-action {
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: transform 0.15s ease;
+    color: var(--text-muted);
+}
+
+.reply-action:hover {
+    transform: scale(1.3);
+    color: var(--accent-emerald);
+}
+
+/* ======================== Chat Search Bar ======================== */
+.chat-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-light);
+    animation: slideDown 0.2s ease;
+    z-index: 99;
+}
+
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-search-bar .search-bar-icon {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.chat-search-bar input {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 6px 12px;
+    color: var(--text-main);
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.chat-search-bar input:focus {
+    border-color: var(--accent-emerald);
+}
+
+.search-counter {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    min-width: 40px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.chat-search-bar button {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    font-size: 0.85rem;
+}
+
+.chat-search-bar button:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.close-search-btn {
+    font-size: 1.2rem !important;
+}
+
+mark.search-highlight {
+    background: rgba(234, 179, 8, 0.4);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+mark.search-highlight.active-highlight {
+    background: var(--accent-emerald);
+    color: #fff;
+}
+
+/* ======================== Voice Recording Bar ======================== */
+.recording-bar {
+    position: fixed;
+    bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(92%, 720px);
+    background: rgba(30, 41, 59, 0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: 28px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    z-index: 102;
+    animation: slideUp 0.2s ease;
+    box-shadow: 0 4px 20px rgba(239, 68, 68, 0.15);
+}
+
+.recording-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.red-dot {
+    width: 10px;
+    height: 10px;
+    background: #ef4444;
+    border-radius: 50%;
+    animation: blink 1s infinite;
+    flex-shrink: 0;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+#recording-timer {
+    font-size: 0.85rem;
+    color: #ef4444;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.recording-wave {
+    flex: 1;
+    height: 20px;
+    background: repeating-linear-gradient(
+        90deg,
+        rgba(239, 68, 68, 0.3) 0px,
+        rgba(239, 68, 68, 0.3) 2px,
+        transparent 2px,
+        transparent 6px
+    );
+    border-radius: 4px;
+    animation: wavePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes wavePulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.rec-cancel-btn, .rec-send-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+}
+
+.rec-cancel-btn {
+    color: #ef4444;
+}
+
+.rec-cancel-btn:hover {
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.rec-send-btn {
+    color: var(--accent-emerald);
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.rec-send-btn:hover {
+    background: rgba(16, 185, 129, 0.3);
+    transform: scale(1.08);
+}
+
+/* Mic button in input bar */
+.mic-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 6px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.mic-btn:hover {
+    color: var(--accent-emerald);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.mic-btn.recording {
+    color: #ef4444;
+    animation: blink 1s infinite;
+}
+
+/* ======================== Audio Player Wrapper ======================== */
+.audio-player-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+
+.audio-player-wrapper audio {
+    max-width: 200px;
+    height: 32px;
+}
+
+.speed-btn {
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-main);
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.speed-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: scale(1.05);
+}
+
+/* ======================== Image Lightbox ======================== */
+.lightbox-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.92);
+    backdrop-filter: blur(20px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+    animation: fadeIn 0.25s ease;
+}
+
+.lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 2rem;
+    cursor: pointer;
+    z-index: 2010;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.lightbox-close:hover {
+    opacity: 1;
+}
+
+.lightbox-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-size: 1.2rem;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 2010;
+}
+
+.lightbox-nav:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-50%) scale(1.08);
+}
+
+.lightbox-nav.prev {
+    left: 16px;
+}
+
+.lightbox-nav.next {
+    right: 16px;
+}
+
+.lightbox-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    max-width: 90vw;
+    max-height: 85vh;
+}
+
+.lightbox-content img {
+    max-width: 85vw;
+    max-height: 78vh;
+    object-fit: contain;
+    border-radius: 8px;
+    cursor: zoom-in;
+    transition: transform 0.3s ease;
+}
+
+.lightbox-content img.zoomed {
+    transform: scale(1.8);
+    cursor: zoom-out;
+}
+
+.lightbox-toolbar {
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.lightbox-toolbar a {
+    color: rgba(255, 255, 255, 0.7);
+    transition: color 0.15s ease;
+    font-size: 1.1rem;
+}
+
+.lightbox-toolbar a:hover {
+    color: #fff;
+}
+

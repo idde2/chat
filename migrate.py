@@ -115,6 +115,14 @@ def run_migrations():
             )
         """)
 
+        # 8) reply_to_id Spalte in msg (für Antwort/Zitat-Feature)
+        cur.execute("""
+            SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'msg' AND COLUMN_NAME = 'reply_to_id'
+        """, (db_name,))
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE `msg` ADD COLUMN `reply_to_id` INT NULL DEFAULT NULL")
+
         conn.commit()
     except Exception as e:
         print(f"FEHLER bei Migration: {e}", file=sys.stderr)

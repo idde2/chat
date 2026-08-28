@@ -154,7 +154,7 @@ def chat(receiver):
 
     try:
         msg = sqlq(
-            """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id
+            """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id
                FROM msg m
                LEFT JOIN users u ON u.id = m.id
                WHERE (m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s)
@@ -163,7 +163,7 @@ def chat(receiver):
         )
     except Exception:
         msg = sqlq(
-            """SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id
+            """SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id
                FROM msg m
                LEFT JOIN users u ON u.id = m.id
                WHERE (m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s)
@@ -233,12 +233,12 @@ def group_chat(conv_id):
 
     try:
         rows = sqlq(
-            "SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.conv = %s ORDER BY m.time ASC",
+            "SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.conv = %s ORDER BY m.time ASC",
             (conv_id,), "all"
         )
     except Exception:
         rows = sqlq(
-            "SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.conv = %s ORDER BY m.time ASC",
+            "SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.conv = %s ORDER BY m.time ASC",
             (conv_id,), "all"
         )
 
@@ -321,6 +321,11 @@ def msg(receiver,msg=None):
     user = session.get("user") if session.get("user") else ""
 
     group_id = request.form.get("group_id") or request.form.get("conv")
+    reply_to_id = request.form.get("reply_to_id")
+    try:
+        reply_to_id = int(reply_to_id) if reply_to_id else None
+    except (ValueError, TypeError):
+        reply_to_id = None
 
     if msg is None:
         msg = str(request.form.get("msg") or "")
@@ -337,13 +342,13 @@ def msg(receiver,msg=None):
             return jsonify({"code":400, "error":"Ungültige group_id"}), 400
 
         sqlq(
-            "INSERT INTO msg (id, receiver, conv, content, status) VALUES (%s, %s, %s, %s, 'sent')",
-            (my_id, 0, gid, msg), "none"
+            "INSERT INTO msg (id, receiver, conv, content, status, reply_to_id) VALUES (%s, %s, %s, %s, 'sent', %s)",
+            (my_id, 0, gid, msg, reply_to_id), "none"
         )
         msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
         msg_id = msg_id_row[0] if msg_id_row else 0
 
-        socketio.emit("msg", {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id}, room=f"group_{gid}")
+        socketio.emit("msg", {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id, "reply_to_id": reply_to_id}, room=f"group_{gid}")
         if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json or request.headers.get("Accept", "").find("application/json") != -1:
             return jsonify({"code": 200, "message": "Gesendet", "msg_id": msg_id})
         return redirect("/" + path + "/group/" + str(gid))
@@ -363,11 +368,11 @@ def msg(receiver,msg=None):
     ids = sorted([int(my_id), int(recv_id)])
     room = f"{ids[0]}_{ids[1]}"
 
-    sqlq("INSERT INTO msg (id, receiver, content, status) VALUES (%s, %s, %s, 'sent')", (my_id, recv_id, msg), "none")
+    sqlq("INSERT INTO msg (id, receiver, content, status, reply_to_id) VALUES (%s, %s, %s, 'sent', %s)", (my_id, recv_id, msg, reply_to_id), "none")
     msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
     msg_id = msg_id_row[0] if msg_id_row else 0
 
-    msg_payload = {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id}
+    msg_payload = {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id, "reply_to_id": reply_to_id}
     print(f"[MSG-EMIT] room={room}, payload={msg_payload}")
     socketio.emit("msg", msg_payload, room=room)
 

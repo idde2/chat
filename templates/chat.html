@@ -21,6 +21,12 @@
             <span>{{ receiver_name }}</span>
         </div>
         <div class="header-right" style="display: flex; align-items: center; gap: 12px;">
+            <div class="search-icon" onclick="toggleChatSearch()" style="cursor: pointer; font-size: 1.1rem; color: var(--text-muted);" title="Chat durchsuchen">
+                <i class="fa-solid fa-magnifying-glass"></i>
+            </div>
+            <div id="sound-toggle-btn" onclick="toggleSoundSetting()" style="cursor: pointer; font-size: 1.1rem; color: var(--text-muted);" title="Benachrichtigungston umschalten">
+                <i class="fa-solid fa-volume-high"></i>
+            </div>
             <div class="gallery-icon" onclick="openMediaGallery()" style="cursor: pointer; font-size: 1.1rem; color: var(--text-muted);" title="Medien-Galerie">
                 <i class="fa-solid fa-images"></i>
             </div>
@@ -35,6 +41,14 @@
         </div>
     </div>
 
+    <div id="chat-search-bar" class="chat-search-bar hidden">
+        <i class="fa-solid fa-magnifying-glass search-bar-icon"></i>
+        <input type="text" id="chat-search-input" placeholder="Im Chat suchen..." oninput="onChatSearchInput()" onkeydown="onSearchKeyDown(event)">
+        <span id="search-counter" class="search-counter">0/0</span>
+        <button type="button" onclick="navigateSearch(-1)" title="Vorheriger Treffer"><i class="fa-solid fa-chevron-up"></i></button>
+        <button type="button" onclick="navigateSearch(1)" title="Nächster Treffer"><i class="fa-solid fa-chevron-down"></i></button>
+        <button type="button" onclick="closeChatSearch()" class="close-search-btn">&times;</button>
+    </div>
 
     {% if group_id and participants %}
     <div class="group-participants" style="padding: 8px 12px; background: #fafafa; border-bottom: 1px solid #eee;">
@@ -49,7 +63,7 @@
         {% for message in msg %}
         {% set msg_id = message[0] %}
         {% set is_me = (message[8] == user) %}
-        <div class="message-wrapper {{ 'du' if is_me else 'fremd' }}" data-msg-id="{{ msg_id }}">
+        <div class="message-wrapper {{ 'du' if is_me else 'fremd' }}" data-msg-id="{{ msg_id }}" data-reply-to-id="{{ message[9] if message|length > 9 and message[9] else '' }}">
             {% if group_id %}
             <div style="font-size:0.85rem; color:#cfcfcf; margin-bottom:4px;">{{ message[7] }}</div>
             {% endif %}
@@ -58,8 +72,10 @@
             <img src="{{ message[5] }}" alt="Bild"
                 style="max-width: 250px; border-radius: 8px; display: block; margin-bottom: 5px;">
             {% elif message[6] == 'audio' %}
-            <audio controls src="{{ message[5] }}"
-                style="max-width: 220px; display: block; margin-bottom: 5px;"></audio>
+            <div class="audio-player-wrapper">
+                <audio controls src="{{ message[5] }}"></audio>
+                <button type="button" class="speed-btn" onclick="toggleAudioSpeed(this)">1x</button>
+            </div>
             {% else %}
             <a href="{{ message[5] }}" target="_blank"
                 style="color: #4fc3f7; text-decoration: underline; display: block; margin-bottom: 5px;">
@@ -97,6 +113,7 @@
                 <span onclick="toggleReaction({{ msg_id }}, '❤️')">❤️</span>
                 <span onclick="toggleReaction({{ msg_id }}, '😂')">😂</span>
                 <span onclick="toggleReaction({{ msg_id }}, '🔥')">🔥</span>
+                <span class="reply-action" onclick="setReply({{ msg_id }}, '{{ message[7] }}', this)" title="Antworten"><i class="fa-solid fa-reply"></i></span>
             </div>
         </div>
         {% endfor %}
@@ -118,7 +135,32 @@
         </div>
     </div>
 
-    <form class="input" action="/msg/{{ receiver }}" method="post" enctype="multipart/form-data">
+    <div id="reply-preview-bar" class="reply-preview-bar hidden">
+        <div class="reply-preview-content">
+            <i class="fa-solid fa-reply"></i>
+            <div class="reply-preview-text">
+                <strong id="reply-user-name">...</strong>
+                <p id="reply-message-snippet">...</p>
+            </div>
+        </div>
+        <button type="button" class="reply-close-btn" onclick="cancelReply()">&times;</button>
+    </div>
+
+    <div id="recording-bar" class="recording-bar hidden">
+        <div class="recording-indicator">
+            <span class="red-dot"></span>
+            <span id="recording-timer">00:00</span>
+        </div>
+        <div class="recording-wave"></div>
+        <button type="button" class="rec-cancel-btn" onclick="cancelVoiceRecording()" title="Abbrechen">
+            <i class="fa-solid fa-trash"></i>
+        </button>
+        <button type="button" class="rec-send-btn" onclick="stopAndSendVoiceRecording()" title="Senden">
+            <i class="fa-solid fa-paper-plane"></i>
+        </button>
+    </div>
+
+    <form class="input" id="chat-form" action="/msg/{{ receiver }}" method="post" enctype="multipart/form-data">
         <label for="file-upload" class="file-btn"
             style="cursor: pointer; padding: 0 10px; font-size: 18px; color: #888;">
             <i class="fa-solid fa-paperclip"></i>
@@ -126,18 +168,37 @@
         <input id="file-upload" type="file" style="display:none;" onchange="uploadFile(this)">
 
         <input type="text" autocomplete="off" name="msg" id="msg-input" placeholder="Nachricht" required>
+        <input type="hidden" name="reply_to_id" id="reply-to-id-input" value="">
 
         {% if group_id %}
         <input type="hidden" name="group_id" value="{{ group_id }}">
         {% endif %}
+
+        <button type="button" id="mic-btn" class="mic-btn" onclick="toggleVoiceRecording()" title="Sprachnachricht aufnehmen">
+            <i class="fa-solid fa-microphone"></i>
+        </button>
 
         <button type="submit" class="submit-btn">
             <i class="fa-solid fa-paper-plane"></i>
         </button>
     </form>
 
+    <!-- Lightbox Modal -->
+    <div id="imageLightboxModal" class="lightbox-modal hidden" onclick="handleLightboxBackdropClick(event)">
+        <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+        <button class="lightbox-nav prev" onclick="navigateLightbox(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+        <div class="lightbox-content">
+            <img id="lightbox-img" src="" alt="Vollbild" onclick="toggleLightboxZoom(event)">
+            <div class="lightbox-toolbar">
+                <span id="lightbox-counter">1 / 1</span>
+                <a id="lightbox-download" href="" download style="color:#fff;" title="Herunterladen"><i class="fa-solid fa-download"></i></a>
+            </div>
+        </div>
+        <button class="lightbox-nav next" onclick="navigateLightbox(1)"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
-    <script src="/chat/static/js/chat.js?v=8"></script>
+    <script src="/chat/static/js/chat.js?v=9"></script>
 </body>
 
 </html>
