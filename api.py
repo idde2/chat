@@ -110,6 +110,9 @@ def sqlq(query,values,type="all"):
         ans = cursor.fetchone()
     elif type == "count":
         ans = cursor.rowcount
+    elif type == "lastid":
+        conn.commit()
+        ans = cursor.lastrowid
     elif type == "none":
         conn.commit()
         ans = ""

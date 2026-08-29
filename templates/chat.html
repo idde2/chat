@@ -41,6 +41,24 @@
         </div>
     </div>
 
+    <div id="pinned-bar" class="pinned-bar hidden">
+        <div class="pinned-content" onclick="scrollToPinnedMessage()">
+            <i class="fa-solid fa-thumbtack pinned-icon"></i>
+            <div class="pinned-text-wrapper">
+                <span class="pinned-title">Angeheftete Nachricht (<span id="pinned-sender">...</span>)</span>
+                <p id="pinned-snippet" class="pinned-snippet">...</p>
+            </div>
+        </div>
+        <button type="button" class="unpin-btn" onclick="unpinCurrentMessage()" title="Anheften aufheben">&times;</button>
+    </div>
+
+    <div id="dropzone-overlay" class="dropzone-overlay hidden">
+        <div class="dropzone-content">
+            <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+            <p>Datei zum Hochladen hier ablegen</p>
+        </div>
+    </div>
+
     <div id="chat-search-bar" class="chat-search-bar hidden">
         <i class="fa-solid fa-magnifying-glass search-bar-icon"></i>
         <input type="text" id="chat-search-input" placeholder="Im Chat suchen..." oninput="onChatSearchInput()" onkeydown="onSearchKeyDown(event)">
@@ -60,6 +78,10 @@
     {% endif %}
 
     <div class="container">
+        <div id="pagination-loader" class="pagination-loader hidden">
+            <i class="fa-solid fa-spinner fa-spin"></i> Ältere Nachrichten werden geladen...
+        </div>
+
         {% for message in msg %}
         {% set msg_id = message[0] %}
         {% set is_me = (message[8] == user) %}
@@ -113,14 +135,29 @@
                 <span onclick="toggleReaction({{ msg_id }}, '❤️')">❤️</span>
                 <span onclick="toggleReaction({{ msg_id }}, '😂')">😂</span>
                 <span onclick="toggleReaction({{ msg_id }}, '🔥')">🔥</span>
-                <span class="reply-action" onclick="setReply({{ msg_id }}, '{{ message[7] }}', this)" title="Antworten"><i class="fa-solid fa-reply"></i></span>
+                <span class="action-icon pin-action" onclick="pinMessage({{ msg_id }})" title="Anheften"><i class="fa-solid fa-thumbtack"></i></span>
+                <span class="reply-action" data-msg-id="{{ msg_id }}" data-sender-name="{{ message[7] or '' }}" onclick="handleReplyClick(this)" title="Antworten"><i class="fa-solid fa-reply"></i></span>
+                {% if is_me %}
+                <span class="action-icon edit-action" onclick="openEditModal({{ msg_id }})" title="Bearbeiten"><i class="fa-solid fa-pen"></i></span>
+                {% endif %}
+                <span class="action-icon delete-action" onclick="openDeleteModal({{ msg_id }}, {{ 'true' if is_me else 'false' }})" title="Löschen"><i class="fa-solid fa-trash"></i></span>
             </div>
         </div>
         {% endfor %}
     </div>
     <div style="height: 90px; flex-shrink: 0;"></div>
 
-    <!-- Modal: Medien Galerie -->
+    <div id="upload-preview-bar" class="upload-preview-bar hidden">
+        <div class="preview-thumb-container">
+            <img id="upload-preview-img" src="" alt="Vorschau" class="hidden">
+            <div id="upload-preview-doc" class="hidden"><i class="fa-solid fa-file"></i> <span id="upload-preview-filename"></span></div>
+        </div>
+        <div class="preview-actions">
+            <button type="button" onclick="cancelUploadPreview()" class="cancel-btn">Abbrechen</button>
+            <button type="button" onclick="confirmUploadPreview()" class="send-btn">Senden</button>
+        </div>
+    </div>
+
     <div id="mediaGalleryModal" class="modal-backdrop hidden">
         <div class="modal-card gallery-modal-card">
             <div class="modal-header">
@@ -130,6 +167,38 @@
             <div class="modal-body">
                 <div class="gallery-grid" id="galleryGrid">
                     <p style="color: var(--text-muted); text-align: center;">Lade Medien...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="editMessageModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-pen"></i> Nachricht bearbeiten</h3>
+                <button class="close-btn" onclick="closeEditModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="edit-message-input" class="edit-textarea" rows="3" placeholder="Neue Nachricht..."></textarea>
+            </div>
+            <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; margin-top:15px;">
+                <button type="button" class="cancel-btn" onclick="closeEditModal()">Abbrechen</button>
+                <button type="button" class="send-btn" onclick="saveEditedMessage()">Speichern</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="deleteMessageModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-trash"></i> Nachricht löschen</h3>
+                <button class="close-btn" onclick="closeDeleteModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-muted); margin-bottom: 15px;">Wie möchtest du diese Nachricht löschen?</p>
+                <div class="delete-options" style="display:flex; flex-direction:column; gap:10px;">
+                    <button type="button" class="delete-opt-btn" onclick="confirmDeleteMessage('me')"><i class="fa-solid fa-user-slash"></i> Für mich löschen</button>
+                    <button type="button" id="delete-for-all-btn" class="delete-opt-btn danger" onclick="confirmDeleteMessage('all')"><i class="fa-solid fa-users-slash"></i> Für alle löschen</button>
                 </div>
             </div>
         </div>
@@ -161,8 +230,7 @@
     </div>
 
     <form class="input" id="chat-form" action="/msg/{{ receiver }}" method="post" enctype="multipart/form-data">
-        <label for="file-upload" class="file-btn"
-            style="cursor: pointer; padding: 0 10px; font-size: 18px; color: #888;">
+        <label for="file-upload" class="file-btn" title="Datei anhängen">
             <i class="fa-solid fa-paperclip"></i>
         </label>
         <input id="file-upload" type="file" style="display:none;" onchange="uploadFile(this)">

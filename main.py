@@ -152,24 +152,30 @@ def chat(receiver):
     id_u = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
     id_r = sqlq("SELECT id FROM users WHERE username = %s", (receiver,), "one")[0]
 
-    try:
-        msg = sqlq(
-            """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id
-               FROM msg m
-               LEFT JOIN users u ON u.id = m.id
-               WHERE (m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s)
-               ORDER BY m.time ASC""",
-            (id_u, id_r, id_r, id_u), "all"
-        )
-    except Exception:
-        msg = sqlq(
-            """SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id
-               FROM msg m
-               LEFT JOIN users u ON u.id = m.id
-               WHERE (m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s)
-               ORDER BY m.time ASC""",
-            (id_u, id_r, id_r, id_u), "all"
-        )
+    raw_msg = sqlq(
+        """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users
+           FROM msg m
+           LEFT JOIN users u ON u.id = m.id
+           WHERE ((m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s))
+             AND (m.conv IS NULL OR m.conv = 0)
+           ORDER BY m.msg_id DESC LIMIT 50""",
+        (id_u, id_r, id_r, id_u), "all"
+    )
+
+    msg = []
+    if raw_msg:
+        for r in raw_msg:
+            if r[1] and (r[1] == '🗑️ Nachricht gelöscht' or str(r[1]).startswith('🗑️')):
+                continue
+            del_users = []
+            if r[10]:
+                try:
+                    del_users = json.loads(r[10])
+                except Exception:
+                    del_users = []
+            if id_u not in del_users and str(id_u) not in del_users:
+                msg.append(r[:10])
+        msg.reverse()
 
     sqlq("UPDATE msg SET status = 'read' WHERE id = %s AND receiver = %s AND status != 'read'", (id_r, id_u), "none")
 
@@ -201,7 +207,6 @@ def group_chat(conv_id):
 
     my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
 
-
     grp = sqlq("SELECT id, name, members FROM `groups` WHERE id = %s", (conv_id,), "one")
     if not grp:
         return redirect("/" + path)
@@ -215,7 +220,6 @@ def group_chat(conv_id):
         try:
             members = ast.literal_eval(raw_members) if raw_members else []
         except Exception:
-
             try:
                 members = [int(x.strip()) for x in str(raw_members).split(",") if x.strip()]
             except Exception:
@@ -225,22 +229,35 @@ def group_chat(conv_id):
     if members:
         try:
             format_strings = ','.join(['%s'] * len(members))
-            rows = sqlq(f"SELECT id, username FROM users WHERE id IN ({format_strings})", tuple(members), "all")
-            if rows:
-                participant_list = [{"id": r[0], "username": r[1]} for r in rows]
+            rows_users = sqlq(f"SELECT id, username FROM users WHERE id IN ({format_strings})", tuple(members), "all")
+            if rows_users:
+                participant_list = [{"id": r[0], "username": r[1]} for r in rows_users]
         except Exception:
             participant_list = []
 
-    try:
-        rows = sqlq(
-            "SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.conv = %s ORDER BY m.time ASC",
-            (conv_id,), "all"
-        )
-    except Exception:
-        rows = sqlq(
-            "SELECT m.id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.conv = %s ORDER BY m.time ASC",
-            (conv_id,), "all"
-        )
+    raw_rows = sqlq(
+        """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users
+           FROM msg m
+           LEFT JOIN users u ON u.id = m.id
+           WHERE m.conv = %s
+           ORDER BY m.msg_id DESC LIMIT 50""",
+        (conv_id,), "all"
+    )
+
+    rows = []
+    if raw_rows:
+        for r in raw_rows:
+            if r[1] and (r[1] == '🗑️ Nachricht gelöscht' or str(r[1]).startswith('🗑️')):
+                continue
+            del_users = []
+            if r[10]:
+                try:
+                    del_users = json.loads(r[10])
+                except Exception:
+                    del_users = []
+            if my_id not in del_users and str(my_id) not in del_users:
+                rows.append(r[:10])
+        rows.reverse()
 
     reactions_map = {}
     if rows:
@@ -341,12 +358,10 @@ def msg(receiver,msg=None):
         except Exception:
             return jsonify({"code":400, "error":"Ungültige group_id"}), 400
 
-        sqlq(
+        msg_id = sqlq(
             "INSERT INTO msg (id, receiver, conv, content, status, reply_to_id) VALUES (%s, %s, %s, %s, 'sent', %s)",
-            (my_id, 0, gid, msg, reply_to_id), "none"
+            (my_id, 0, gid, msg, reply_to_id), "lastid"
         )
-        msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
-        msg_id = msg_id_row[0] if msg_id_row else 0
 
         socketio.emit("msg", {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id, "reply_to_id": reply_to_id}, room=f"group_{gid}")
         if request.headers.get("X-Requested-With") == "XMLHttpRequest" or request.is_json or request.headers.get("Accept", "").find("application/json") != -1:
@@ -368,9 +383,7 @@ def msg(receiver,msg=None):
     ids = sorted([int(my_id), int(recv_id)])
     room = f"{ids[0]}_{ids[1]}"
 
-    sqlq("INSERT INTO msg (id, receiver, content, status, reply_to_id) VALUES (%s, %s, %s, 'sent', %s)", (my_id, recv_id, msg, reply_to_id), "none")
-    msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
-    msg_id = msg_id_row[0] if msg_id_row else 0
+    msg_id = sqlq("INSERT INTO msg (id, receiver, content, status, reply_to_id) VALUES (%s, %s, %s, 'sent', %s)", (my_id, recv_id, msg, reply_to_id), "lastid")
 
     msg_payload = {"content": msg, "sender": user, "sender_id": my_id, "status": "sent", "msg_id": msg_id, "reply_to_id": reply_to_id}
     print(f"[MSG-EMIT] room={room}, payload={msg_payload}")
@@ -401,7 +414,7 @@ def upload_file():
 
     if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
         file_type = 'image'
-    elif ext in ['.mp3', '.wav', '.ogg', '.m4a', '.webm']:
+    elif ext in ['.mp3', '.wav', '.ogg', '.m4a', '.webm', '.mp4', '.aac', '.opus']:
         file_type = 'audio'
     else:
         file_type = 'document'
@@ -415,12 +428,10 @@ def upload_file():
 
     if group_id:
         group_id = int(group_id)
-        sqlq(
+        msg_id = sqlq(
             "INSERT INTO msg (id, receiver, conv, content, file_url, file_type, status) VALUES (%s, 0, %s, %s, %s, %s, 'sent')",
-            (my_id, group_id, content, file_url, file_type), "none"
+            (my_id, group_id, content, file_url, file_type), "lastid"
         )
-        msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
-        msg_id = msg_id_row[0] if msg_id_row else 0
         room = f"group_{group_id}"
         socketio.emit("msg", {
             "content": content,
@@ -433,12 +444,10 @@ def upload_file():
         }, room=room)
     elif receiver_id:
         receiver_id = int(receiver_id)
-        sqlq(
+        msg_id = sqlq(
             "INSERT INTO msg (id, receiver, content, file_url, file_type, status) VALUES (%s, %s, %s, %s, %s, 'sent')",
-            (my_id, receiver_id, content, file_url, file_type), "none"
+            (my_id, receiver_id, content, file_url, file_type), "lastid"
         )
-        msg_id_row = sqlq("SELECT LAST_INSERT_ID()", (), "one")
-        msg_id = msg_id_row[0] if msg_id_row else 0
         ids = sorted([int(my_id), receiver_id])
         room = f"{ids[0]}_{ids[1]}"
         socketio.emit("msg", {
@@ -797,15 +806,20 @@ def edit_msg():
         return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
     my_id = my_id[0]
 
-    row = sqlq("SELECT id, receiver FROM msg WHERE id = %s AND msg_id = %s", (my_id, msg_id), "one")
+    row = sqlq("SELECT id, receiver, conv FROM msg WHERE id = %s AND msg_id = %s", (my_id, msg_id), "one")
     if not row:
         return jsonify({"code": 403, "error": "Nicht deine Nachricht"}), 403
 
     sqlq("UPDATE msg SET content = %s, edited = 1 WHERE msg_id = %s", (new_content, msg_id), "none")
 
-    ids = sorted([int(row[0]), int(row[1])])
-    room = f"{ids[0]}_{ids[1]}"
-    socketio.emit("msg_edited", {"msg_id": msg_id, "content": new_content}, room=room)
+    conv = row[2]
+    if conv and conv > 0:
+        room = f"group_{conv}"
+    else:
+        ids = sorted([int(row[0]), int(row[1])])
+        room = f"{ids[0]}_{ids[1]}"
+
+    socketio.emit("msg_edited", {"msg_id": msg_id, "content": new_content, "edited": 1}, room=room)
 
     return jsonify({"code": 200})
 
@@ -814,6 +828,7 @@ def edit_msg():
 def delete_msg():
     data = request.get_json(silent=True) or {}
     msg_id = data.get("msg_id")
+    mode = data.get("mode", "all")
     user = session.get("user")
 
     if not msg_id or not user:
@@ -824,18 +839,226 @@ def delete_msg():
         return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
     my_id = my_id[0]
 
-    row = sqlq("SELECT id, receiver FROM msg WHERE id = %s AND msg_id = %s", (my_id, msg_id), "one")
+    row = sqlq("SELECT id, receiver, conv, deleted_for_users FROM msg WHERE msg_id = %s", (msg_id,), "one")
     if not row:
-        return jsonify({"code": 403, "error": "Nicht deine Nachricht"}), 403
+        return jsonify({"code": 404, "error": "Nachricht nicht gefunden"}), 404
 
-    deleted_text = "🗑️ Nachricht gelöscht"
-    sqlq("UPDATE msg SET content = %s, edited = 0 WHERE msg_id = %s", (deleted_text, msg_id), "none")
+    sender_id, receiver_id, conv, raw_del = row[0], row[1], row[2], row[3]
 
-    ids = sorted([int(row[0]), int(row[1])])
-    room = f"{ids[0]}_{ids[1]}"
-    socketio.emit("msg_deleted", {"msg_id": msg_id, "content": deleted_text}, room=room)
+    if mode == "me":
+        try:
+            del_users = json.loads(raw_del) if raw_del else []
+        except Exception:
+            del_users = []
+        if my_id not in del_users and str(my_id) not in del_users:
+            del_users.append(my_id)
+        sqlq("UPDATE msg SET deleted_for_users = %s WHERE msg_id = %s", (json.dumps(del_users), msg_id), "none")
+        return jsonify({"code": 200, "mode": "me"})
+    else:
+        if sender_id != my_id:
+            return jsonify({"code": 403, "error": "Nicht deine Nachricht"}), 403
+
+        deleted_text = "🗑️ Nachricht gelöscht"
+        sqlq("UPDATE msg SET content = %s, file_url = NULL, file_type = NULL, edited = 0 WHERE msg_id = %s", (deleted_text, msg_id), "none")
+
+        if conv and conv > 0:
+            room = f"group_{conv}"
+        else:
+            ids = sorted([int(sender_id), int(receiver_id)])
+            room = f"{ids[0]}_{ids[1]}"
+
+        socketio.emit("msg_deleted", {"msg_id": msg_id, "content": deleted_text}, room=room)
+        return jsonify({"code": 200, "mode": "all"})
+
+
+# ------------------------ Pin Message Routes ------------------------
+@app.route("/chat/pin/<int:msg_id>", methods=["POST"])
+@app.route("/pin/<int:msg_id>", methods=["POST"])
+def pin_message(msg_id):
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+    if not my_id:
+        return jsonify({"code": 401, "error": "Ungültiger Benutzer"}), 401
+    my_id = my_id[0]
+
+    msg_row = sqlq("SELECT m.msg_id, m.id, m.receiver, m.conv, m.content, u.username FROM msg m LEFT JOIN users u ON u.id = m.id WHERE m.msg_id = %s", (msg_id,), "one")
+    if not msg_row:
+        return jsonify({"code": 404, "error": "Nachricht nicht gefunden"}), 404
+
+    sender_id, receiver_id, conv, content, sender_name = msg_row[1], msg_row[2], msg_row[3], msg_row[4], msg_row[5]
+
+    if conv and conv > 0:
+        room_type = "group"
+        room_id = str(conv)
+        room = f"group_{conv}"
+    else:
+        room_type = "user"
+        ids = sorted([int(sender_id), int(receiver_id)])
+        room_id = f"{ids[0]}_{ids[1]}"
+        room = room_id
+
+    sqlq("""
+        INSERT INTO pinned_messages (room_type, room_id, message_id, pinned_by)
+        VALUES (%s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE message_id = VALUES(message_id), pinned_by = VALUES(pinned_by), pinned_at = CURRENT_TIMESTAMP
+    """, (room_type, room_id, msg_id, my_id), "none")
+
+    payload = {"msg_id": msg_id, "content": content, "sender_name": sender_name or "Unbekannt"}
+    socketio.emit("pin_update", payload, room=room)
+
+    return jsonify({"code": 200, "pinned": payload})
+
+
+@app.route("/chat/unpin/<target_type>/<target_id>", methods=["POST"])
+@app.route("/unpin/<target_type>/<target_id>", methods=["POST"])
+def unpin_message(target_type, target_id):
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+    if not my_id:
+        return jsonify({"code": 401, "error": "Ungültiger Benutzer"}), 401
+    my_id = my_id[0]
+
+    if target_type == "group":
+        room_type = "group"
+        room_id = str(target_id)
+        room = f"group_{target_id}"
+    else:
+        room_type = "user"
+        try:
+            recv_id = int(target_id)
+        except ValueError:
+            recv_row = sqlq("SELECT id FROM users WHERE username = %s", (target_id,), "one")
+            recv_id = recv_row[0] if recv_row else 0
+        ids = sorted([int(my_id), int(recv_id)])
+        room_id = f"{ids[0]}_{ids[1]}"
+        room = room_id
+
+    sqlq("DELETE FROM pinned_messages WHERE room_type = %s AND room_id = %s", (room_type, room_id), "none")
+    socketio.emit("pin_update", {"msg_id": None}, room=room)
 
     return jsonify({"code": 200})
+
+
+@app.route("/chat/pinned/<target_type>/<target_id>", methods=["GET"])
+@app.route("/pinned/<target_type>/<target_id>", methods=["GET"])
+def get_pinned_message(target_type, target_id):
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+    if not my_id:
+        return jsonify({"code": 401, "error": "Ungültiger Benutzer"}), 401
+    my_id = my_id[0]
+
+    if target_type == "group":
+        room_type = "group"
+        room_id = str(target_id)
+    else:
+        room_type = "user"
+        try:
+            recv_id = int(target_id)
+        except ValueError:
+            recv_row = sqlq("SELECT id FROM users WHERE username = %s", (target_id,), "one")
+            recv_id = recv_row[0] if recv_row else 0
+        ids = sorted([int(my_id), int(recv_id)])
+        room_id = f"{ids[0]}_{ids[1]}"
+
+    row = sqlq("""
+        SELECT pm.message_id, m.content, u.username
+        FROM pinned_messages pm
+        JOIN msg m ON m.msg_id = pm.message_id
+        LEFT JOIN users u ON u.id = m.id
+        WHERE pm.room_type = %s AND pm.room_id = %s
+    """, (room_type, room_id), "one")
+
+    if row:
+        return jsonify({"code": 200, "pinned": {"msg_id": row[0], "content": row[1], "sender_name": row[2] or "Unbekannt"}})
+    return jsonify({"code": 200, "pinned": None})
+
+
+# ------------------------ History Pagination Route ------------------------
+@app.route("/chat/messages/history", methods=["GET"])
+@app.route("/messages/history", methods=["GET"])
+def get_message_history():
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+    if not my_id:
+        return jsonify({"code": 401, "error": "Ungültiger Benutzer"}), 401
+    my_id = my_id[0]
+
+    target_type = request.args.get("target_type", "user")
+    target_id = request.args.get("target_id")
+    before_id = request.args.get("before_id", type=int)
+    limit = request.args.get("limit", 50, type=int)
+
+    if not target_id or before_id is None:
+        return jsonify({"code": 400, "error": "Fehlende Parameter"}), 400
+
+    if target_type == "group":
+        raw_rows = sqlq("""
+            SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users
+            FROM msg m
+            LEFT JOIN users u ON u.id = m.id
+            WHERE m.conv = %s AND m.msg_id < %s
+            ORDER BY m.msg_id DESC LIMIT %s
+        """, (int(target_id), before_id, limit), "all")
+    else:
+        try:
+            recv_id = int(target_id)
+        except ValueError:
+            recv_row = sqlq("SELECT id FROM users WHERE username = %s", (target_id,), "one")
+            recv_id = recv_row[0] if recv_row else 0
+
+        raw_rows = sqlq("""
+            SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users
+            FROM msg m
+            LEFT JOIN users u ON u.id = m.id
+            WHERE ((m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s))
+              AND (m.conv IS NULL OR m.conv = 0)
+              AND m.msg_id < %s
+            ORDER BY m.msg_id DESC LIMIT %s
+        """, (my_id, recv_id, recv_id, my_id, before_id, limit), "all")
+
+    messages = []
+    has_more = False
+    if raw_rows:
+        if len(raw_rows) == limit:
+            has_more = True
+        for r in raw_rows:
+            if r[1] and (r[1] == '🗑️ Nachricht gelöscht' or str(r[1]).startswith('🗑️')):
+                continue
+            del_users = []
+            if r[10]:
+                try:
+                    del_users = json.loads(r[10])
+                except Exception:
+                    del_users = []
+            if my_id not in del_users and str(my_id) not in del_users:
+                messages.append({
+                    "msg_id": r[0],
+                    "content": r[1],
+                    "time": str(r[2]),
+                    "edited": r[3],
+                    "status": r[4],
+                    "file_url": r[5],
+                    "file_type": r[6],
+                    "username": r[7],
+                    "sender_id": r[8],
+                    "reply_to_id": r[9]
+                })
+        messages.reverse()
+
+    return jsonify({"code": 200, "messages": messages, "has_more": has_more})
 
 
 # ------------------------ File Upload Endpoint ------------------------

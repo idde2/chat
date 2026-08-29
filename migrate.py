@@ -123,6 +123,27 @@ def run_migrations():
         if not cur.fetchone():
             cur.execute("ALTER TABLE `msg` ADD COLUMN `reply_to_id` INT NULL DEFAULT NULL")
 
+        # 9) deleted_for_users Spalte in msg für "Für mich löschen"
+        cur.execute("""
+            SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'msg' AND COLUMN_NAME = 'deleted_for_users'
+        """, (db_name,))
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE `msg` ADD COLUMN `deleted_for_users` TEXT NULL")
+
+        # 10) pinned_messages Tabelle für angeheftete Nachrichten
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS `pinned_messages` (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                room_type VARCHAR(20) NOT NULL,
+                room_id VARCHAR(100) NOT NULL,
+                message_id INT NOT NULL,
+                pinned_by INT NOT NULL,
+                pinned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY `unique_room_pin` (`room_type`, `room_id`)
+            )
+        """)
+
         conn.commit()
     except Exception as e:
         print(f"FEHLER bei Migration: {e}", file=sys.stderr)

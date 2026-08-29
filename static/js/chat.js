@@ -148,6 +148,7 @@ if (chatForm) {
         if (!text) return;
 
         inputEl.value = '';
+        if (typeof getDraftKey === 'function') localStorage.removeItem(getDraftKey());
 
         const encText = await encryptMessage(text);
         const formData = new FormData();
@@ -230,12 +231,19 @@ socket.on('msg', async (data) => {
         }
     }
 
+    function escapeAttr(str) {
+        return String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
     const quickReactionsHtml = msgId ? `<div class="quick-reactions">
         <span onclick="toggleReaction(${msgId}, '👍')">👍</span>
         <span onclick="toggleReaction(${msgId}, '❤️')">❤️</span>
         <span onclick="toggleReaction(${msgId}, '😂')">😂</span>
         <span onclick="toggleReaction(${msgId}, '🔥')">🔥</span>
-        <span class="reply-action" onclick="setReply(${msgId}, '${data.sender || ''}', this)" title="Antworten"><i class="fa-solid fa-reply"></i></span>
+        <span class="action-icon pin-action" onclick="pinMessage(${msgId})" title="Anheften"><i class="fa-solid fa-thumbtack"></i></span>
+        <span class="reply-action" data-msg-id="${msgId}" data-sender-name="${escapeAttr(data.sender || '')}" onclick="handleReplyClick(this)" title="Antworten"><i class="fa-solid fa-reply"></i></span>
+        ${isMe ? `<span class="action-icon edit-action" onclick="openEditModal(${msgId})" title="Bearbeiten"><i class="fa-solid fa-pen"></i></span>` : ''}
+        <span class="action-icon delete-action" onclick="openDeleteModal(${msgId}, ${isMe ? 'true' : 'false'})" title="Löschen"><i class="fa-solid fa-trash"></i></span>
     </div>` : '';
 
     div.innerHTML = `${quoteHtml}${mediaHtml}<p>${clearContent}</p><div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;"><p data-time="${new Date().toISOString()}" class="time"></p>${statusHtml}</div><div class="reactions-bar"></div>${quickReactionsHtml}`;
@@ -250,9 +258,12 @@ socket.on('msg', async (data) => {
         socket.emit('mark_read', { user_id: myId, sender_id: receiver });
     }
 
-    // Play notification sound for incoming messages
+    // Play notification sound and trigger desktop notification for incoming messages
     if (!isMe) {
         playNotificationSound();
+        if (typeof triggerSystemNotification === 'function') {
+            triggerSystemNotification(data.sender || 'Unbekannt', clearContent);
+        }
     }
 });
 
@@ -397,6 +408,13 @@ if (icons && iconsUser) {
 
 // ======================== Feature: Reply System ========================
 let currentReplyId = null;
+
+function handleReplyClick(el) {
+    if (!el) return;
+    const msgId = el.getAttribute('data-msg-id');
+    const senderName = el.getAttribute('data-sender-name');
+    setReply(msgId, senderName, el);
+}
 
 function setReply(msgId, senderName, triggerEl) {
     currentReplyId = msgId;
@@ -872,3 +890,437 @@ function toggleSoundSetting() {
         if (icon) icon.className = 'fa-solid fa-volume-xmark';
     }
 })();
+
+// ======================== Feature 1: Edit & Delete System ========================
+let activeEditMsgId = null;
+let activeDeleteMsgId = null;
+
+function openEditModal(msgId) {
+    activeEditMsgId = msgId;
+    const msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+    if (!msgEl) return;
+    const p = msgEl.querySelector('p');
+    if (!p) return;
+
+    let text = p.dataset.originalText || p.textContent;
+    text = text.replace(/\s*\(bearbeitet\)$/, '');
+
+    const input = document.getElementById('edit-message-input');
+    if (input) input.value = text;
+
+    const modal = document.getElementById('editMessageModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeEditModal() {
+    activeEditMsgId = null;
+    const modal = document.getElementById('editMessageModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function saveEditedMessage() {
+    if (!activeEditMsgId) return;
+    const input = document.getElementById('edit-message-input');
+    const newText = input ? input.value.trim() : '';
+    if (!newText) return;
+
+    const encText = await encryptMessage(newText);
+    try {
+        const res = await fetch(`${getApiPrefix()}/edit_msg`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ msg_id: activeEditMsgId, content: encText })
+        });
+        if (res.ok) {
+            closeEditModal();
+        } else {
+            const data = await res.json();
+            alert("Fehler beim Bearbeiten: " + (data.error || "Unbekannter Fehler"));
+        }
+    } catch (e) {
+        console.error("Edit Fehler:", e);
+    }
+}
+
+socket.on('msg_edited', async (data) => {
+    const el = document.querySelector(`[data-msg-id="${data.msg_id}"]`);
+    if (!el) return;
+    const p = el.querySelector('p');
+    if (p) {
+        const clearContent = await decryptMessage(data.content);
+        p.dataset.originalText = clearContent;
+        p.textContent = clearContent;
+    }
+});
+
+function openDeleteModal(msgId, isMe) {
+    activeDeleteMsgId = msgId;
+    const forAllBtn = document.getElementById('delete-for-all-btn');
+    if (forAllBtn) {
+        if (isMe) {
+            forAllBtn.style.display = 'block';
+        } else {
+            forAllBtn.style.display = 'none';
+        }
+    }
+    const modal = document.getElementById('deleteMessageModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeDeleteModal() {
+    activeDeleteMsgId = null;
+    const modal = document.getElementById('deleteMessageModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function confirmDeleteMessage(mode) {
+    if (!activeDeleteMsgId) return;
+    const msgId = activeDeleteMsgId;
+    closeDeleteModal();
+    await deleteMessage(msgId, mode);
+}
+
+async function deleteMessage(msgId, mode) {
+    try {
+        const res = await fetch(`${getApiPrefix()}/delete_msg`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ msg_id: msgId, mode: mode })
+        });
+        if (res.ok && mode === 'me') {
+            const el = document.querySelector(`[data-msg-id="${msgId}"]`);
+            if (el) el.remove();
+        }
+    } catch (e) {
+        console.error("Delete Fehler:", e);
+    }
+}
+
+socket.on('msg_deleted', (data) => {
+    const el = document.querySelector(`[data-msg-id="${data.msg_id}"]`);
+    if (el) el.remove();
+});
+
+// ======================== Feature 2: Drag & Drop & Paste Preview ========================
+let pendingUploadBlob = null;
+
+function showUploadPreview(fileOrBlob) {
+    pendingUploadBlob = fileOrBlob;
+    const bar = document.getElementById('upload-preview-bar');
+    const imgEl = document.getElementById('upload-preview-img');
+    const docEl = document.getElementById('upload-preview-doc');
+    const filenameEl = document.getElementById('upload-preview-filename');
+
+    if (!bar) return;
+    bar.classList.remove('hidden');
+
+    const isImage = fileOrBlob.type && fileOrBlob.type.indexOf('image') !== -1;
+    if (isImage) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            if (imgEl) {
+                imgEl.src = e.target.result;
+                imgEl.classList.remove('hidden');
+            }
+            if (docEl) docEl.classList.add('hidden');
+        };
+        reader.readAsDataURL(fileOrBlob);
+    } else {
+        if (imgEl) imgEl.classList.add('hidden');
+        if (docEl) docEl.classList.remove('hidden');
+        if (filenameEl) filenameEl.textContent = fileOrBlob.name || 'Datei';
+    }
+}
+
+function cancelUploadPreview() {
+    pendingUploadBlob = null;
+    const bar = document.getElementById('upload-preview-bar');
+    if (bar) bar.classList.add('hidden');
+}
+
+async function confirmUploadPreview() {
+    if (!pendingUploadBlob) return;
+    const blob = pendingUploadBlob;
+    cancelUploadPreview();
+
+    const formData = new FormData();
+    const fileName = blob.name || `paste_${Date.now()}.png`;
+    formData.append('file', blob, fileName);
+
+    if (groupId) {
+        formData.append('group_id', groupId);
+    } else {
+        formData.append('receiver_id', receiver);
+    }
+
+    try {
+        await fetch(`${getApiPrefix()}/upload`, {
+            method: 'POST',
+            body: formData
+        });
+    } catch (e) {
+        console.error("Upload Preview Fehler:", e);
+    }
+}
+
+document.addEventListener('paste', (e) => {
+    const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+    if (!items) return;
+    for (let item of items) {
+        if (item.type.indexOf('image') !== -1) {
+            e.preventDefault();
+            const blob = item.getAsFile();
+            if (blob) showUploadPreview(blob);
+            break;
+        }
+    }
+});
+
+const dropZone = document.body;
+['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const overlay = document.getElementById('dropzone-overlay');
+        if (overlay) overlay.classList.remove('hidden');
+    }, false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (eventName === 'drop' || e.target.id === 'dropzone-overlay') {
+            const overlay = document.getElementById('dropzone-overlay');
+            if (overlay) overlay.classList.add('hidden');
+        }
+    }, false);
+});
+
+dropZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+        showUploadPreview(files[0]);
+    }
+});
+
+// ======================== Feature 3: Pin Message System ========================
+let currentPinnedMsgId = null;
+
+async function pinMessage(msgId) {
+    if (!msgId) return;
+    try {
+        await fetch(`${getApiPrefix()}/pin/${msgId}`, { method: 'POST' });
+    } catch (e) {
+        console.error("Pin Fehler:", e);
+    }
+}
+
+async function unpinCurrentMessage() {
+    const targetType = groupId ? 'group' : 'user';
+    const targetId = groupId ? groupId : receiver;
+    try {
+        await fetch(`${getApiPrefix()}/unpin/${targetType}/${targetId}`, { method: 'POST' });
+    } catch (e) {
+        console.error("Unpin Fehler:", e);
+    }
+}
+
+function scrollToPinnedMessage() {
+    if (currentPinnedMsgId) {
+        scrollToMessage(currentPinnedMsgId);
+    }
+}
+
+socket.on('pin_update', async (data) => {
+    const bar = document.getElementById('pinned-bar');
+    const snippetEl = document.getElementById('pinned-snippet');
+    const senderEl = document.getElementById('pinned-sender');
+
+    if (data && data.msg_id) {
+        currentPinnedMsgId = data.msg_id;
+        const clearText = await decryptMessage(data.content);
+        if (snippetEl) snippetEl.textContent = clearText;
+        if (senderEl) senderEl.textContent = data.sender_name || 'Unbekannt';
+        if (bar) bar.classList.remove('hidden');
+    } else {
+        currentPinnedMsgId = null;
+        if (bar) bar.classList.add('hidden');
+    }
+});
+
+async function loadPinnedMessage() {
+    const targetType = groupId ? 'group' : 'user';
+    const targetId = groupId ? groupId : receiver;
+    try {
+        const res = await fetch(`${getApiPrefix()}/pinned/${targetType}/${targetId}`);
+        const data = await res.json();
+        if (data.code === 200 && data.pinned) {
+            currentPinnedMsgId = data.pinned.msg_id;
+            const bar = document.getElementById('pinned-bar');
+            const snippetEl = document.getElementById('pinned-snippet');
+            const senderEl = document.getElementById('pinned-sender');
+            const clearText = await decryptMessage(data.pinned.content);
+            if (snippetEl) snippetEl.textContent = clearText;
+            if (senderEl) senderEl.textContent = data.pinned.sender_name || 'Unbekannt';
+            if (bar) bar.classList.remove('hidden');
+        }
+    } catch (e) {
+        console.error("Fehler beim Laden des Pins:", e);
+    }
+}
+window.addEventListener('DOMContentLoaded', loadPinnedMessage);
+
+// ======================== Feature 4: System Push Notifications ========================
+function initPushNotifications() {
+    if ("Notification" in window && Notification.permission === "default") {
+        Notification.requestPermission();
+    }
+}
+
+function triggerSystemNotification(sender, text) {
+    if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+        const notif = new Notification(`Neue Nachricht von ${sender}`, {
+            body: text,
+            icon: `/chat/static/img/profil/${sender}.png`
+        });
+        notif.onclick = () => {
+            window.focus();
+            notif.close();
+        };
+    }
+}
+document.addEventListener('click', initPushNotifications, { once: true });
+
+// ======================== Feature 5: Auto-Save Drafts ========================
+const getDraftKey = () => `chat_draft_${groupId ? 'group_' + groupId : 'user_' + receiver}`;
+
+function initDrafts() {
+    const savedDraft = localStorage.getItem(getDraftKey());
+    const inputEl = document.getElementById('msg-input');
+    if (savedDraft && inputEl) {
+        inputEl.value = savedDraft;
+    }
+}
+
+if (msgInput) {
+    msgInput.addEventListener('input', () => {
+        const val = msgInput.value;
+        if (val.trim()) {
+            localStorage.setItem(getDraftKey(), val);
+        } else {
+            localStorage.removeItem(getDraftKey());
+        }
+    });
+}
+window.addEventListener('DOMContentLoaded', initDrafts);
+
+// ======================== Feature 6: Infinite Scroll & Pagination ========================
+let isLoadingHistory = false;
+let hasMoreHistory = true;
+
+const containerEl = document.querySelector('.container');
+if (containerEl) {
+    containerEl.addEventListener('scroll', async () => {
+        if (containerEl.scrollTop < 60 && !isLoadingHistory && hasMoreHistory) {
+            await loadOlderMessages();
+        }
+    });
+}
+
+async function loadOlderMessages() {
+    const container = document.querySelector('.container');
+    if (!container) return;
+
+    const firstMsg = container.querySelector('.message-wrapper[data-msg-id]');
+    if (!firstMsg) return;
+    const oldestId = firstMsg.getAttribute('data-msg-id');
+
+    isLoadingHistory = true;
+    const loader = document.getElementById('pagination-loader');
+    if (loader) loader.classList.remove('hidden');
+
+    const targetType = groupId ? 'group' : 'user';
+    const targetId = groupId ? groupId : receiver;
+
+    try {
+        const res = await fetch(`${getApiPrefix()}/messages/history?target_type=${targetType}&target_id=${targetId}&before_id=${oldestId}&limit=50`);
+        const data = await res.json();
+
+        if (data.code === 200 && data.messages && data.messages.length > 0) {
+            const oldScrollHeight = container.scrollHeight;
+
+            const fragment = document.createDocumentFragment();
+            for (const msgData of data.messages) {
+                const msgEl = await createMessageElement(msgData);
+                fragment.appendChild(msgEl);
+            }
+
+            const insertPoint = loader ? loader.nextSibling : container.firstChild;
+            container.insertBefore(fragment, insertPoint);
+
+            const newScrollHeight = container.scrollHeight;
+            container.scrollTop = newScrollHeight - oldScrollHeight;
+
+            hasMoreHistory = data.has_more;
+        } else {
+            hasMoreHistory = false;
+        }
+    } catch (e) {
+        console.error("Fehler beim Nachladen der Historie:", e);
+    } finally {
+        isLoadingHistory = false;
+        if (loader) loader.classList.add('hidden');
+    }
+}
+
+async function createMessageElement(data) {
+    const div = document.createElement('div');
+    const isMe = (String(data.sender_id) === String(myId));
+    div.className = `message-wrapper ${isMe ? 'du' : 'fremd'}`;
+
+    const msgId = data.msg_id || 0;
+    if (msgId) div.setAttribute('data-msg-id', msgId);
+    if (data.reply_to_id) div.setAttribute('data-reply-to-id', data.reply_to_id);
+
+    let senderHeader = '';
+    if (groupId && data.username) {
+        senderHeader = `<div style="font-size:0.85rem; color:#cfcfcf; margin-bottom:4px;">${data.username}</div>`;
+    }
+
+    let mediaHtml = '';
+    if (data.file_url) {
+        if (data.file_type === 'image') {
+            mediaHtml = `<img src="${data.file_url}" alt="Bild" style="max-width: 250px; border-radius: 8px; display: block; margin-bottom: 5px;">`;
+        } else if (data.file_type === 'audio') {
+            mediaHtml = `<div class="audio-player-wrapper"><audio controls src="${data.file_url}"></audio><button type="button" class="speed-btn" onclick="toggleAudioSpeed(this)">1x</button></div>`;
+        } else {
+            mediaHtml = `<a href="${data.file_url}" target="_blank" style="color: #4fc3f7; text-decoration: underline; display: block; margin-bottom: 5px;"><i class="fa-solid fa-file"></i> ${data.content}</a>`;
+        }
+    }
+
+    const clearContent = await decryptMessage(data.content);
+    const statusHtml = isMe ? `<span class="read-status ${data.status || 'sent'}" style="font-size: 12px; font-weight: bold; margin-left: 4px;">✓</span>` : '';
+
+    function escapeAttr(str) {
+        return String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    const quickReactionsHtml = msgId ? `<div class="quick-reactions">
+        <span onclick="toggleReaction(${msgId}, '👍')">👍</span>
+        <span onclick="toggleReaction(${msgId}, '❤️')">❤️</span>
+        <span onclick="toggleReaction(${msgId}, '😂')">😂</span>
+        <span onclick="toggleReaction(${msgId}, '🔥')">🔥</span>
+        <span class="action-icon pin-action" onclick="pinMessage(${msgId})" title="Anheften"><i class="fa-solid fa-thumbtack"></i></span>
+        <span class="reply-action" data-msg-id="${msgId}" data-sender-name="${escapeAttr(data.username || '')}" onclick="handleReplyClick(this)" title="Antworten"><i class="fa-solid fa-reply"></i></span>
+        ${isMe ? `<span class="action-icon edit-action" onclick="openEditModal(${msgId})" title="Bearbeiten"><i class="fa-solid fa-pen"></i></span>` : ''}
+        <span class="action-icon delete-action" onclick="openDeleteModal(${msgId}, ${isMe ? 'true' : 'false'})" title="Löschen"><i class="fa-solid fa-trash"></i></span>
+    </div>` : '';
+
+    div.innerHTML = `${senderHeader}${mediaHtml}<p>${clearContent}</p><div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;"><p data-time="${data.time}" class="time"></p>${statusHtml}</div><div class="reactions-bar"></div>${quickReactionsHtml}`;
+
+    const timeEl = div.querySelector('.time');
+    if (timeEl) formatTime(timeEl);
+
+    return div;
+}
