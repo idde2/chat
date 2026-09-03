@@ -25,22 +25,17 @@ if (groupId) {
     }
 }
 
-async function decryptExistingMessages() {
-    const paragraphs = document.querySelectorAll('.message-wrapper p');
-    for (const p of paragraphs) {
-        if (p.textContent && p.textContent.startsWith('ENC:')) {
-            p.textContent = await decryptMessage(p.textContent);
-        }
-    }
-}
-
-// ------------------------ E2E Web Crypto API Helper ------------------------
 let e2eKey = null;
+let e2eKeyFallback = null;
 
 async function initE2E() {
     try {
         if (window.crypto && window.crypto.subtle) {
-            const pairId = groupId ? `group_${groupId}` : [myId, receiver].sort().join('_');
+            const u1 = parseInt(myId) || 0;
+            const u2 = parseInt(receiver) || 0;
+            const pairId = groupId ? `group_${groupId}` : [u1, u2].sort((a, b) => a - b).join('_');
+            const pairIdString = groupId ? `group_${groupId}` : [String(myId), String(receiver)].sort().join('_');
+
             const keyMaterial = await window.crypto.subtle.digest(
                 'SHA-256',
                 new TextEncoder().encode(`eddi_chat_secret_${pairId}`)
@@ -52,13 +47,26 @@ async function initE2E() {
                 false,
                 ['encrypt', 'decrypt']
             );
-            console.log("E2E Schlüssel erfolgreich abgeleitet.");
+
+            if (pairIdString !== pairId) {
+                const keyMatFb = await window.crypto.subtle.digest(
+                    'SHA-256',
+                    new TextEncoder().encode(`eddi_chat_secret_${pairIdString}`)
+                );
+                e2eKeyFallback = await window.crypto.subtle.importKey(
+                    'raw',
+                    keyMatFb,
+                    { name: 'AES-GCM' },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            }
+            console.log("E2E Schlüssel erfolgreich abgeleitet für Raum:", pairId);
         }
     } catch (e) {
         console.warn("E2E Crypto Fallback aktiv", e);
     }
 }
-initE2E().then(decryptExistingMessages);
 
 async function encryptMessage(text) {
     if (!e2eKey) return text;
@@ -81,9 +89,11 @@ async function encryptMessage(text) {
 }
 
 async function decryptMessage(cipherText) {
-    if (!e2eKey || typeof cipherText !== 'string' || !cipherText.startsWith('ENC:')) {
+    if (!cipherText || typeof cipherText !== 'string' || !cipherText.startsWith('ENC:')) {
         return cipherText;
     }
+    if (!e2eKey) return cipherText;
+
     try {
         const rawStr = atob(cipherText.slice(4));
         const combined = new Uint8Array(rawStr.length);
@@ -92,17 +102,55 @@ async function decryptMessage(cipherText) {
         }
         const iv = combined.slice(0, 12);
         const data = combined.slice(12);
-        const decrypted = await window.crypto.subtle.decrypt(
-            { name: 'AES-GCM', iv: iv },
-            e2eKey,
-            data
-        );
-        return new TextDecoder().decode(decrypted);
+
+        try {
+            const decrypted = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, e2eKey, data);
+            return new TextDecoder().decode(decrypted);
+        } catch (e1) {
+            if (e2eKeyFallback) {
+                const decryptedFb = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, e2eKeyFallback, data);
+                return new TextDecoder().decode(decryptedFb);
+            }
+            throw e1;
+        }
     } catch (e) {
-        console.warn("Entschlüsselungsfehler (Text ungültig oder Schlüssel weicht ab):", e);
+        console.warn("Entschlüsselungsfehler:", e);
         return cipherText;
     }
 }
+
+async function renderAllMessages() {
+    const textEls = document.querySelectorAll('.msg-text-content');
+    for (const el of textEls) {
+        let raw = el.getAttribute('data-raw-text');
+        if (raw === null || raw === undefined) {
+            raw = el.textContent || '';
+            el.setAttribute('data-raw-text', raw);
+        }
+
+        let clearContent = raw;
+        if (raw.startsWith('ENC:')) {
+            clearContent = await decryptMessage(raw);
+        }
+
+        const wrapper = el.closest('.message-wrapper');
+        const hasMedia = wrapper && (wrapper.querySelector('audio') || wrapper.querySelector('img:not(.avatar-preview)'));
+
+        if (hasMedia && (!clearContent || clearContent.startsWith('voice_message') || clearContent.startsWith('paste_') || clearContent === el.previousElementSibling?.getAttribute('src'))) {
+            el.style.display = 'none';
+        } else {
+            el.style.display = 'block';
+            el.innerHTML = renderMarkdown(clearContent);
+        }
+    }
+    processMessageLinkPreviews();
+    await renderQuoteBoxes();
+}
+
+initE2E().then(() => {
+    renderAllMessages();
+});
+
 
 // ------------------------ File Upload Handler ------------------------
 async function uploadFile(inputElement) {
@@ -1748,11 +1796,7 @@ function updateThemeBtnIcon() {
 document.addEventListener('DOMContentLoaded', () => {
     updateThemeBtnIcon();
     applyWallpaper();
-
-    document.querySelectorAll('.msg-text-content').forEach(el => {
-        const raw = el.getAttribute('data-raw-text') || el.textContent;
-        el.innerHTML = renderMarkdown(raw);
-    });
-    processMessageLinkPreviews();
+    renderAllMessages();
 });
+
 
