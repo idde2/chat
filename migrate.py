@@ -144,6 +144,36 @@ def run_migrations():
             )
         """)
 
+        # 11) forwarded_from Spalte in msg
+        cur.execute("""
+            SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'msg' AND COLUMN_NAME = 'forwarded_from'
+        """, (db_name,))
+        if not cur.fetchone():
+            cur.execute("ALTER TABLE `msg` ADD COLUMN `forwarded_from` VARCHAR(255) NULL")
+
+        # 12) bio & avatar_url Spalten in users
+        for col, col_def in [
+            ("bio", "VARCHAR(500) NULL"),
+            ("avatar_url", "VARCHAR(500) NULL")
+        ]:
+            cur.execute("""
+                SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'users' AND COLUMN_NAME = %s
+            """, (db_name, col))
+            if not cur.fetchone():
+                cur.execute(f"ALTER TABLE `users` ADD COLUMN `{col}` {col_def}")
+
+        # 13) group_read_status Tabelle für ungelesene Gruppen-Nachrichten
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS `group_read_status` (
+                user_id INT NOT NULL,
+                group_id INT NOT NULL,
+                last_read_msg_id INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, group_id)
+            )
+        """)
+
         conn.commit()
     except Exception as e:
         print(f"FEHLER bei Migration: {e}", file=sys.stderr)

@@ -1,1 +1,78 @@
-@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-main: #0f172a;
+  --bg-card: rgba(30, 41, 59, 0.85);
+  --bg-header: rgba(15, 23, 42, 0.9);
+  --bg-input: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --msg-mine-bg: linear-gradient(135deg, #4f46e5, #6366f1);
+  --msg-mine-text: #ffffff;
+  --msg-other-bg: #1e293b;
+  --msg-other-text: #f8fafc;
+  --modal-backdrop: rgba(15, 23, 42, 0.75);
+  --border-color: rgba(255, 255, 255, 0.1);
+  --shadow-main: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  --badge-bg: #ef4444;
+  --badge-text: #ffffff;
+}
+
+html[data-theme="light"] {
+  --bg-main: #f1f5f9;
+  --bg-card: rgba(255, 255, 255, 0.95);
+  --bg-header: rgba(255, 255, 255, 0.95);
+  --bg-input: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --msg-mine-bg: linear-gradient(135deg, #4f46e5, #6366f1);
+  --msg-mine-text: #ffffff;
+  --msg-other-bg: #ffffff;
+  --msg-other-text: #0f172a;
+  --modal-backdrop: rgba(15, 23, 42, 0.5);
+  --border-color: rgba(0, 0, 0, 0.08);
+  --shadow-main: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+  --badge-bg: #ef4444;
+  --badge-text: #ffffff;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  margin: 0;
+  padding: 0;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Toast Notifications */
+.toast-notification {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 10px 20px;
+  border-radius: 9999px;
+  box-shadow: var(--shadow-main);
+  backdrop-filter: blur(12px);
+  z-index: 9999;
+  font-size: 0.9rem;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+}
+.toast-notification.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

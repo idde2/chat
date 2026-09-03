@@ -95,12 +95,16 @@ def protect():
 @app.route("/")
 def index():
     user = session["user"] if session.get("user") else ""
-    user_row = sqlq("SELECT id, kontacts FROM users WHERE username = %s", (user,), "one")
+    user_row = sqlq("SELECT id, kontacts, bio, avatar_url FROM users WHERE username = %s", (user,), "one")
     kontacts = []
     groups = []
+    unread_users = {}
+    unread_groups = {}
+    avatar_url = ""
+    bio = ""
 
     if user_row:
-        user_id, raw_k = user_row[0], user_row[1]
+        user_id, raw_k, bio, avatar_url = user_row[0], user_row[1], user_row[2] or "", user_row[3] or ""
         try:
             raw_kontacts = json.loads(raw_k or "[]")
         except Exception:
@@ -108,9 +112,9 @@ def index():
 
         if raw_kontacts:
             format_strings = ','.join(['%s'] * len(raw_kontacts))
-            rows = sqlq(f"SELECT username FROM users WHERE id IN ({format_strings})", tuple(raw_kontacts), "all")
+            rows = sqlq(f"SELECT id, username FROM users WHERE id IN ({format_strings})", tuple(raw_kontacts), "all")
             if rows:
-                kontacts = [r[0] for r in rows if r[0]]
+                kontacts = [{"id": r[0], "username": r[1]} for r in rows if r[1]]
 
         try:
             like_pattern = f"%{user_id}%"
@@ -129,7 +133,32 @@ def index():
             except Exception:
                 groups = []
 
-    return render_template("index.html", kontacts=kontacts, groups=groups)
+        # Calculate unread 1-on-1 messages
+        rows_u = sqlq("SELECT id, COUNT(*) FROM msg WHERE receiver = %s AND status != 'read' GROUP BY id", (user_id,), "all")
+        if rows_u:
+            for sender_id, cnt in rows_u:
+                unread_users[str(sender_id)] = cnt
+
+        # Calculate unread group messages
+        for g in groups:
+            gid = g["id"]
+            lr_row = sqlq("SELECT last_read_msg_id FROM group_read_status WHERE user_id = %s AND group_id = %s", (user_id, gid), "one")
+            last_read_id = lr_row[0] if lr_row else 0
+            cnt_row = sqlq("SELECT COUNT(*) FROM msg WHERE conv = %s AND msg_id > %s AND id != %s", (gid, last_read_id, user_id), "one")
+            cnt = cnt_row[0] if cnt_row else 0
+            if cnt > 0:
+                unread_groups[str(gid)] = cnt
+
+    return render_template(
+        "index.html",
+        kontacts=kontacts,
+        groups=groups,
+        unread_users=unread_users,
+        unread_groups=unread_groups,
+        user=user,
+        avatar_url=avatar_url or f"/chat/profile/{user}.png",
+        bio=bio
+    )
 
 
 @app.route('/users_list')
@@ -144,7 +173,6 @@ def users_list():
     return jsonify({"code":200, "users": users})
 
 
-
 @app.route("/chat/<receiver>")
 def chat(receiver):
     user = session["user"] if session.get("user") else ""
@@ -153,7 +181,7 @@ def chat(receiver):
     id_r = sqlq("SELECT id FROM users WHERE username = %s", (receiver,), "one")[0]
 
     raw_msg = sqlq(
-        """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users
+        """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users, m.forwarded_from
            FROM msg m
            LEFT JOIN users u ON u.id = m.id
            WHERE ((m.id = %s AND m.receiver = %s) OR (m.id = %s AND m.receiver = %s))
@@ -174,7 +202,8 @@ def chat(receiver):
                 except Exception:
                     del_users = []
             if id_u not in del_users and str(id_u) not in del_users:
-                msg.append(r[:10])
+                # Include forwarded_from as 11th element (index 10 in array)
+                msg.append((r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[11]))
         msg.reverse()
 
     sqlq("UPDATE msg SET status = 'read' WHERE id = %s AND receiver = %s AND status != 'read'", (id_r, id_u), "none")
@@ -236,7 +265,7 @@ def group_chat(conv_id):
             participant_list = []
 
     raw_rows = sqlq(
-        """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users
+        """SELECT m.msg_id, m.content, m.time, COALESCE(m.edited,0), m.status, m.file_url, m.file_type, u.username, m.id, m.reply_to_id, m.deleted_for_users, m.forwarded_from
            FROM msg m
            LEFT JOIN users u ON u.id = m.id
            WHERE m.conv = %s
@@ -246,6 +275,12 @@ def group_chat(conv_id):
 
     rows = []
     if raw_rows:
+        max_m_id = max([r[0] for r in raw_rows if r[0]])
+        if max_m_id > 0:
+            sqlq("""INSERT INTO group_read_status (user_id, group_id, last_read_msg_id)
+                    VALUES (%s, %s, %s)
+                    ON DUPLICATE KEY UPDATE last_read_msg_id = %s""", (my_id, conv_id, max_m_id, max_m_id), "none")
+
         for r in raw_rows:
             if r[1] and (r[1] == '🗑️ Nachricht gelöscht' or str(r[1]).startswith('🗑️')):
                 continue
@@ -256,7 +291,7 @@ def group_chat(conv_id):
                 except Exception:
                     del_users = []
             if my_id not in del_users and str(my_id) not in del_users:
-                rows.append(r[:10])
+                rows.append((r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[11]))
         rows.reverse()
 
     reactions_map = {}
@@ -274,6 +309,7 @@ def group_chat(conv_id):
                     reactions_map[r_msg_id][emo].append(uid)
 
     return render_template("chat.html", user=my_id, receiver=0, receiver_name=group_name, msg=rows, group_id=conv_id, participants=participant_list, reactions_map=reactions_map)
+
 
 
 @app.route('/group/<int:gid>/add/<int:uid>')
@@ -667,7 +703,118 @@ def login():
                 img.save("static/img/profil/" + user + ".png")
 
             return redirect("/" + path)
-    return render_template("login.html")
+# ------------------------ Profile & Forward Web Routes ------------------------
+@app.route("/profile", methods=["GET", "POST"])
+@app.route("/chat/profile_settings", methods=["GET", "POST"])
+def user_profile_settings():
+    user = session.get("user")
+    if not user:
+        return redirect("/" + path + "/login")
+
+    my_row = sqlq("SELECT id, username, bio, avatar_url, email FROM users WHERE username = %s", (user,), "one")
+    if not my_row:
+        return redirect("/" + path + "/login")
+
+    my_id, username, bio, avatar_url, email = my_row[0], my_row[1], my_row[2] or "", my_row[3] or "", my_row[4] or ""
+
+    if request.method == "POST":
+        new_bio = request.form.get("bio", "").strip()
+        avatar_file = request.files.get("avatar")
+
+        new_avatar_url = avatar_url
+
+        if avatar_file and avatar_file.filename != '':
+            try:
+                img = Image.open(avatar_file.stream)
+                img = img.convert("RGB")
+                w, h = img.size
+                min_dim = min(w, h)
+                left = (w - min_dim) / 2
+                top = (h - min_dim) / 2
+                right = (w + min_dim) / 2
+                bottom = (h + min_dim) / 2
+                img = img.crop((left, top, right, bottom))
+                img = img.resize((400, 400), Image.LANCZOS)
+
+                profile_dir = os.path.join(app.root_path, "static", "img", "profil")
+                os.makedirs(profile_dir, exist_ok=True)
+                save_filename = f"{username}.png"
+                save_path = os.path.join(profile_dir, save_filename)
+                img.save(save_path, "PNG")
+                new_avatar_url = f"/chat/profile/{save_filename}"
+            except Exception as e:
+                print(f"[ERROR] Profilbild Upload: {e}")
+
+        sqlq("UPDATE users SET bio = %s, avatar_url = %s WHERE id = %s", (new_bio, new_avatar_url, my_id), "none")
+        return redirect("/" + path + "/profile")
+
+    return render_template(
+        "profile.html",
+        username=username,
+        bio=bio,
+        avatar_url=avatar_url or f"/chat/profile/{username}.png",
+        email=email
+    )
+
+
+@app.route("/chat/forward_msg", methods=["POST"])
+@app.route("/forward_msg", methods=["POST"])
+def web_forward_msg():
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")[0]
+    data = request.get_json(silent=True) or {}
+    msg_id = data.get("msg_id")
+    target_type = data.get("target_type")
+    target_id = data.get("target_id")
+
+    if not msg_id or not target_type or not target_id:
+        return jsonify({"code": 400, "error": "Fehlende Parameter"}), 400
+
+    row = sqlq("""SELECT m.content, m.file_url, m.file_type, u.username 
+                  FROM msg m 
+                  LEFT JOIN users u ON u.id = m.id 
+                  WHERE m.msg_id = %s""", (msg_id,), "one")
+    if not row:
+        return jsonify({"code": 404, "error": "Nachricht nicht gefunden"}), 404
+
+    content, file_url, file_type, orig_sender = row[0], row[1], row[2], row[3] or "Anonym"
+
+    if target_type == "group":
+        new_id = sqlq(
+            "INSERT INTO msg (id, receiver, conv, content, file_url, file_type, forwarded_from, status) VALUES (%s, 0, %s, %s, %s, %s, %s, 'sent')",
+            (my_id, target_id, content, file_url, file_type, orig_sender), "lastid"
+        )
+        socketio.emit("msg", {
+            "content": content,
+            "sender": user,
+            "sender_id": my_id,
+            "file_url": file_url,
+            "file_type": file_type,
+            "forwarded_from": orig_sender,
+            "status": "sent",
+            "msg_id": new_id
+        }, room=f"group_{target_id}")
+    else:
+        new_id = sqlq(
+            "INSERT INTO msg (id, receiver, content, file_url, file_type, forwarded_from, status) VALUES (%s, %s, %s, %s, %s, %s, 'sent')",
+            (my_id, target_id, content, file_url, file_type, orig_sender), "lastid"
+        )
+        ids = sorted([my_id, int(target_id)])
+        socketio.emit("msg", {
+            "content": content,
+            "sender": user,
+            "sender_id": my_id,
+            "file_url": file_url,
+            "file_type": file_type,
+            "forwarded_from": orig_sender,
+            "status": "sent",
+            "msg_id": new_id
+        }, room=f"{ids[0]}_{ids[1]}")
+
+    return jsonify({"code": 200, "message": "Nachricht weitergeleitet"})
 
 
 @app.route('/chat/profile/<path:filename>')

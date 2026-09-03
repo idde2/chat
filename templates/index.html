@@ -4,17 +4,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>chats</title>
+    <title>Chats - eddi.chat</title>
+    <script>
+        (function () {
+            var t = localStorage.getItem('chat_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <link rel="stylesheet" href="/chat/static/css/main.css?v=3">
     <link rel="stylesheet" href="/chat/static/css/index.css?v=3">
-    <link rel="stylesheet" href="/chat/static/css/main.css?v=2">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
 <body data-user="{{ session.get('user') }}">
 
     <div class="top-actions">
+        <div onclick="window.location.href = '/chat/profile' " class="add-user profile-btn-header"
+            title="Profil bearbeiten">
+            <img src="{{ avatar_url }}" alt="{{ user }}"
+                style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover;">
+            <p>{{ user }}</p>
+        </div>
+
         <div onclick="window.location.href = '/chat/kontakt' " class="add-user">
-            <i class="fa-solid fa-user"></i>
+            <i class="fa-solid fa-user-plus"></i>
             <p>neuer kontakt</p>
         </div>
 
@@ -22,28 +35,44 @@
             <i class="fa-solid fa-users"></i>
             <p>neue gruppe</p>
         </div>
+
+        <div onclick="toggleTheme()" class="add-user theme-toggle-action" title="Design umschalten">
+            <span id="theme-toggle-btn">🌙</span>
+        </div>
     </div>
 
     <div class="container">
         {% for contact in kontacts %}
-        <div onclick="window.location.href='/chat/chat/{{ contact }}'" style="cursor: pointer;" class="contact"
-            data-name="{{ contact }}">
-            <img src="/chat/static/img/profil/{{ contact }}.png" height="50" width="50" alt="{{ contact }}">
-            <span>{{ contact }}</span>
-            <span class="online-indicator" id="online-{{ contact }}"></span>
+        <div onclick="window.location.href='/chat/chat/{{ contact.username }}'" style="cursor: pointer;" class="contact"
+            data-name="{{ contact.username }}" data-id="{{ contact.id }}">
+            <img src="/chat/static/img/profil/{{ contact.username }}.png" height="50" width="50"
+                alt="{{ contact.username }}">
+            <div class="contact-info-wrap">
+                <span class="contact-name">{{ contact.username }}</span>
+                <span class="online-indicator" id="online-{{ contact.username }}"></span>
+            </div>
+            <span class="badge-unread {% if not unread_users.get(contact.id|string) %}hidden{% endif %}"
+                id="badge-user-{{ contact.id }}">
+                {{ unread_users.get(contact.id|string, 0) }}
+            </span>
         </div>
         {% endfor %}
 
         {% if groups %}
-        <h3 style="color: #fff; margin: 20px 0 10px 0; font-size: 1.1rem;">Gruppen</h3>
+        <h3 class="section-title">Gruppen</h3>
         {% for group in groups %}
         <div onclick="window.location.href='/chat/group/{{ group.id }}'" style="cursor: pointer;" class="contact"
-            data-name="{{ group.name }}">
-            <div
-                style="width: 50px; height: 50px; border-radius: 50%; background: #6366f1; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;">
+            data-name="{{ group.name }}" data-gid="{{ group.id }}">
+            <div class="group-avatar-icon">
                 <i class="fa-solid fa-users"></i>
             </div>
-            <span>{{ group.name }}</span>
+            <div class="contact-info-wrap">
+                <span class="contact-name">{{ group.name }}</span>
+            </div>
+            <span class="badge-unread {% if not unread_groups.get(group.id|string) %}hidden{% endif %}"
+                id="badge-group-{{ group.id }}">
+                {{ unread_groups.get(group.id|string, 0) }}
+            </span>
         </div>
         {% endfor %}
         {% endif %}
@@ -73,7 +102,7 @@
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="/chat/static/js/index.js?v=1"></script>
+    <script src="/chat/static/js/index.js?v=2"></script>
 </body>
 
 </html>

@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kontakt</title>
+    <script>
+        (function() {
+            var t = localStorage.getItem('chat_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+
     <link rel="stylesheet" href="/chat/static/css/kontakt.css?v=2">
     <link rel="stylesheet" href="/chat/static/css/main.css?v=2">
 </head>

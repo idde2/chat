@@ -18,6 +18,48 @@ socket.on('online_update', (data) => {
     });
 });
 
+socket.on('msg', (data) => {
+    if (!data) return;
+    if (data.sender && data.sender !== currentUser) {
+        const contactEl = document.querySelector(`.contact[data-name="${data.sender}"]`);
+        if (contactEl) {
+            const uid = contactEl.getAttribute('data-id');
+            if (uid) {
+                const badge = document.getElementById(`badge-user-${uid}`);
+                if (badge) {
+                    let currentCount = parseInt(badge.innerText) || 0;
+                    badge.innerText = currentCount + 1;
+                    badge.classList.remove('hidden');
+                }
+            }
+        }
+    }
+    if (data.conv_id || data.group_id) {
+        const gid = data.conv_id || data.group_id;
+        const badge = document.getElementById(`badge-group-${gid}`);
+        if (badge) {
+            let currentCount = parseInt(badge.innerText) || 0;
+            badge.innerText = currentCount + 1;
+            badge.classList.remove('hidden');
+        }
+    }
+});
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('chat_theme', next);
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.innerText = next === 'dark' ? '🌙' : '☀️';
+}
+
+function updateThemeBtnIcon() {
+    const current = localStorage.getItem('chat_theme') || 'dark';
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.innerText = current === 'dark' ? '🌙' : '☀️';
+}
+
 function openGroupModal() {
     const modal = document.getElementById('groupModal');
     if (modal) modal.classList.remove('hidden');
@@ -63,7 +105,7 @@ function submitCreateGroup() {
         return;
     }
 
-    const createUrl = window.location.pathname.startsWith('/chat') ? '/chat/api/groups/create' : '/api/groups/create';
+    const createUrl = window.location.pathname.startsWith('/chat') ? '/chat/create_group' : '/create_group';
     fetch(createUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,10 +113,12 @@ function submitCreateGroup() {
     })
         .then(res => res.json())
         .then(data => {
-            if (data.code === 200) {
+            if (data.code === 201 || data.code === 200) {
                 window.location.reload();
             } else {
                 alert('Fehler beim Erstellen der Gruppe');
             }
         });
 }
+
+document.addEventListener('DOMContentLoaded', updateThemeBtnIcon);

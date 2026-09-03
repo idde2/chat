@@ -1324,3 +1324,435 @@ async function createMessageElement(data) {
 
     return div;
 }
+
+
+// ======================== Phase 3 Roadmap Features ========================
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// --- 7️⃣ Markdown/Rich-Text Formatting (XSS Safe) ---
+function renderMarkdown(text) {
+    if (!text) return '';
+    let safe = escapeHtml(text);
+
+    const codeBlocks = [];
+    safe = safe.replace(/```([\s\S]*?)```/g, (match, code) => {
+        codeBlocks.push(`<pre class="code-block"><code>${code.trim()}</code></pre>`);
+        return `__CODEBLOCK_${codeBlocks.length - 1}__`;
+    });
+
+    safe = safe
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/~~(.*?)~~/g, '<del>$1</del>')
+        .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+        .replace(/(https?:\/\/[^\s<]+)/gi, '<a href="$1" target="_blank" rel="noopener noreferrer" class="chat-link">$1</a>');
+
+    codeBlocks.forEach((block, idx) => {
+        safe = safe.replace(`__CODEBLOCK_${idx}__`, block);
+    });
+
+    return safe;
+}
+
+// --- 6️⃣ Link Preview Fetcher ---
+function processMessageLinkPreviews() {
+    document.querySelectorAll('.msg-text-content:not([data-preview-checked])').forEach(async el => {
+        el.setAttribute('data-preview-checked', 'true');
+        const links = el.querySelectorAll('a.chat-link');
+        if (links.length > 0) {
+            const firstUrl = links[0].href;
+            try {
+                const res = await fetch(`${getApiPrefix()}/api/link-preview?url=${encodeURIComponent(firstUrl)}`);
+                const data = await res.json();
+                if (data.code === 200 && (data.title || data.description)) {
+                    const card = document.createElement('a');
+                    card.className = 'link-preview-card';
+                    card.href = data.url;
+                    card.target = '_blank';
+                    card.rel = 'noopener noreferrer';
+                    card.innerHTML = `
+                        ${data.image ? `<img src="${data.image}" class="link-preview-img" alt="Preview">` : ''}
+                        <div class="link-preview-body">
+                            ${data.title ? `<div class="link-preview-title">${escapeHtml(data.title)}</div>` : ''}
+                            ${data.description ? `<div class="link-preview-desc">${escapeHtml(data.description)}</div>` : ''}
+                            <div class="link-preview-domain"><i class="fa-solid fa-globe"></i> ${escapeHtml(data.domain)}</div>
+                        </div>
+                    `;
+                    el.appendChild(card);
+                }
+            } catch (e) {
+                console.warn("Link preview fetch failed:", e);
+            }
+        }
+    });
+}
+
+// --- 1️⃣ Emoji-Picker Panel ---
+const EMOJI_CATALOG = {
+    recent: [],
+    smileys: ["😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😗", "😙", "😚", "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🤩", "🥳", "😏", "😒", "😞", "😔", "😟", "😕", "🙁", "☹️", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬", "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🤭", "🤫", "🤥", "😶", "😐", "😑", "😬", "🙄", "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵", "🤐", "🥴", "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠", "😈", "👿", "👹", "👺", "🤡", "💩", "👻", "💀", "👽", "👾", "🤖", "🎃"],
+    animals: ["🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🙈", "🙉", "🙊", "🐒", "🐔", "🐧", "🐦", "🐤", "🐣", "🐥", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞", "🐜", "🦟", "🦗", "🕷️", "🦂", "🐢", "🐍", "蜥", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡", "🐠", "🐟", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆", "🦓", "🐘", "🦏", "🦛", "🐪", "🐫", "🦙", "🦒", "🦘", "🐃", "🐂", "🐄", "🐎", "🐖", "🐏", "🐑", "🦙", "🐐", "🦌", "🐕", "🐩", "🦮", "🐕‍🦺", "🐈", "🐓", "🦃", "🦚", "🦜", "🦢", "🦩", "🕊️", "🐇", "🦝", "🦡", "🦦", "🦥", "🦔", "🐾"],
+    food: ["🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶️", "🫑", "🌽", "🥕", "🫒", "🧄", "🧅", "🥔", "🍠", "🥐", "🥯", "🍞", "🥖", "🥨", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "骨", "🌭", "🍔", "🍟", "🍕", "🫓", "🥪", "🥙", "🧆", "🌮", "🌯", "🫔", "🥗", "🥘", "🫕", "🥫", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤", "🍙", "🍚", "🍘", "🍥", "🥠", "🥮", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "☕", "🫖", "🍵", "🍶", "🍾", "🍷", "🍸", "🍹", "🍺", "🍻", "🥂", "🥃", "🥤", "🧋", "🧃", "🧉", "🧊"],
+    travel: ["🚗", "🚕", "🚙", "🚌", "🏣", "🏎️", "🚓", "ambulance", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🦯", "🦽", "🦼", "🛴", "🚲", "🛵", "🏍️", "🛺", "🚨", "🚔", "🚍", "🚘", "🚖", "🚡", "🚠", "🚟", "🚃", "🚋", "🚝", "🚄", "🚅", "🚈", "🚂", "🚆", "🚇", "🚊", "🚉", "✈️", "🛫", "🛬", "🛩️", "💺", "🛰️", "🚀", "🛸", "🚁", "🛶", "⛵", "🚤", "🛥️", "🛳️", "⛴️", "🚢", "⚓", "⛽", "🚧", "🚦", "🚥", "🚏", "🗺️", "🗿", "🗽", "🗼", "🏰", "🏯", "🏟️", " Ferris", "🎢", "🎠", "⛲", "⛱️", "🏖️", "🏝️", "🏜️", "🌋", "⛰️", "🏔️", "🗻", "🏕️", "⛺", "🛖", "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏭", "🏢", "🏬", "🏣", "🏤", "🏥", "🏦", "🏨", "🏪", "🏫", "🏩", "💒", "🏛️", "⛪", "🕌", "🛕", "🕍", "⛩️", "🕋"],
+    objects: ["⌚", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "🖲️", "🕹️", "🗜️", "💽", "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥", "📽️", "🎞️", "📞", "☎️", "📟", "📠", "📺", "📻", "🎙️", "🎚️", "🎛️", "⏱️", "⏲️", "⏰", "🕰️", "⏳", "⌛", "📡", "🔋", "🔌", "💡", "🔦", "🕯️", "🪔", "🧯", "🛢️", "💸", "💵", "💴", "💶", "💷", "🪙", "💰", "💳", "💎", "⚖️", "🪜", "🧰", "🪛", "🔧", "🔨", "⚒️", "🛠️", "⛏️", "🪓", "⚙️", "🔗", "⛓️", "🧲", "🔫", "💣", "🧨", "🔪", "🗡️", "⚔️", "🛡️", "🚬", "⚰️", "🪦", "⚱️", "🏺", "🔮", "📿", "🧿", "💈", "⚗️", "🔭", "🔬", "🕳️", "🩹", "🩺", "💊", "💉", "🩸", "🧬", "🦠", "🧫", "🧪", "🌡️", "🧹", "🪠", "🧺", "🧻", "🚽", "🚰", "shower", "bathtub", "soap", "toothbrush", "razor", "sponge", "bucket", "lotion", "🔑", "🗝️", "🚪", "🪑", "🛋️", "🛏️", "🛌", "🖼️", "🛍️", "🛒", "🎁", "🎈", "🎏", "🎀", "🪄", "🪅", "🎊", "🎉", "🎎", "🏮", "🎐", "🧧", "✉️", "📩", "📨", "📧", "💌", "📥", "📤", "📦", "🏷️", "🪧", "📫", "📬", "📭", "📮", "📯", "📜", "📃", "📄", "📑", "🧾", "📊", "📈", "📉", "🗒️", "🗓️", "📅", "📆", "📇", "🗃️", "🗳️", "🗄️", "📋", "📁", "📂", "🗂️", "🗞️", "📰", "📓", "📕", "📗", "📘", "📙", "📔", "📒", "📚", "📖", "🔗", "📎", "✂️", "📐", "📏", "📌", "📍", "🚩", "🎌", "🏴", "🏳️"],
+    symbols: ["❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️", "✝️", "☪️", "🕉️", "☸️", "✡️", "🔯", "🕎", "☯️", "☦️", "🛐", "⛎", "♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🆔", "⚛️", "🉑", "☢️", "☣️", "📴", "📳", "🈶", "🈚", "🈸", "🈺", "🈷️", "✴️", "🆚", "💮", "🉐", "㊙️", "㊗️", "🈴", "🈵", "🈹", "🈲", "🅰️", "🅱️", "🆎", "🆑", "🅾️", "🆘", "❌", "⭕", "🛑", "⛔", "📛", "🚫", "💯", "💢", "♨️", "🚷", "🚯", "🚳", "🚱", "🔞", "📵", "🚭", "❗", "❕", "❓", "❔", "‼️", "⁉️", "🔆", "🔅", "⚠️", "🚸", "🔱", "⚜️", "🔰", "♻️", "✅", "🈯", "💹", "❇️", "✳️", "❎", "🌐", "💠", "Ⓜ️", "💡", "💤", "🏧", "🚾", "♿", "🅿️", "🛗", "🈳", "🈂️", "🛂", "🛃", "🛄", "🛅", "🚹", "🚺", "🚼", "⚧️", "🚻", "🚮", "🎦", "📶", "🈁", "🔣", "ℹ️", "🔤", "🔡", "🔠", "🆖", "🆗", "🆙", "🆒", "NEW", "FREE", "0️⃣", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+};
+
+let currentEmojiContext = 'input';
+let activeReactionMsgId = null;
+
+function loadRecentEmojis() {
+    try {
+        const stored = localStorage.getItem('chat_recent_emojis');
+        if (stored) EMOJI_CATALOG.recent = JSON.parse(stored);
+    } catch(e) {}
+}
+
+function saveRecentEmoji(emoji) {
+    if (!EMOJI_CATALOG.recent.includes(emoji)) {
+        EMOJI_CATALOG.recent.unshift(emoji);
+        if (EMOJI_CATALOG.recent.length > 35) EMOJI_CATALOG.recent.pop();
+        try { localStorage.setItem('chat_recent_emojis', JSON.stringify(EMOJI_CATALOG.recent)); } catch(e) {}
+    }
+}
+
+function toggleEmojiPicker(context = 'input', msgId = null) {
+    currentEmojiContext = context;
+    activeReactionMsgId = msgId;
+    const panel = document.getElementById('emoji-picker-panel');
+    if (!panel) return;
+
+    if (panel.classList.contains('hidden')) {
+        loadRecentEmojis();
+        panel.classList.remove('hidden');
+        switchEmojiTab(EMOJI_CATALOG.recent.length > 0 ? 'recent' : 'smileys');
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function switchEmojiTab(category) {
+    document.querySelectorAll('.emoji-tabs button').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-cat') === category);
+    });
+
+    const grid = document.getElementById('emoji-grid-container');
+    if (!grid) return;
+    const emojis = EMOJI_CATALOG[category] || [];
+    if (emojis.length === 0 && category === 'recent') {
+        grid.innerHTML = '<p style="color:var(--text-muted); font-size:0.8rem; grid-column:1/-1; text-align:center; padding:10px;">Keine zuletzt verwendeten Emojis</p>';
+        return;
+    }
+    grid.innerHTML = emojis.map(e => `<span class="emoji-item" onclick="onEmojiSelect('${e}')">${e}</span>`).join('');
+}
+
+function onEmojiSearch(val) {
+    const query = val.trim().toLowerCase();
+    const grid = document.getElementById('emoji-grid-container');
+    if (!grid) return;
+    if (!query) {
+        switchEmojiTab('smileys');
+        return;
+    }
+
+    const all = [...new Set(Object.values(EMOJI_CATALOG).flat())];
+    grid.innerHTML = all.map(e => `<span class="emoji-item" onclick="onEmojiSelect('${e}')">${e}</span>`).join('');
+}
+
+function onEmojiSelect(emoji) {
+    saveRecentEmoji(emoji);
+    if (currentEmojiContext === 'input') {
+        const input = document.getElementById('msg-input');
+        if (input) {
+            input.value += emoji;
+            input.focus();
+        }
+    } else if (currentEmojiContext === 'reaction' && activeReactionMsgId) {
+        toggleReaction(activeReactionMsgId, emoji);
+        const panel = document.getElementById('emoji-picker-panel');
+        if (panel) panel.classList.add('hidden');
+    }
+}
+
+document.addEventListener('click', (e) => {
+    const panel = document.getElementById('emoji-picker-panel');
+    if (!panel || panel.classList.contains('hidden')) return;
+    if (!e.target.closest('#emoji-picker-panel, .emoji-picker-btn, .quick-react-plus')) {
+        panel.classList.add('hidden');
+    }
+});
+
+// --- 8️⃣ GIF Picker & Tenor Integration ---
+let gifDebounceTimer = null;
+
+function toggleGifPicker() {
+    const panel = document.getElementById('gif-picker-panel');
+    if (!panel) return;
+    if (panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        loadGifs('');
+    } else {
+        panel.classList.add('hidden');
+    }
+}
+
+function closeGifPicker() {
+    const panel = document.getElementById('gif-picker-panel');
+    if (panel) panel.classList.add('hidden');
+}
+
+function onGifSearch(query) {
+    clearTimeout(gifDebounceTimer);
+    gifDebounceTimer = setTimeout(() => {
+        loadGifs(query);
+    }, 300);
+}
+
+async function loadGifs(query = '') {
+    const grid = document.getElementById('gif-grid-container');
+    if (!grid) return;
+    grid.innerHTML = '<p style="color: var(--text-muted); text-align: center; grid-column: 1/-1;">Lade GIFs...</p>';
+
+    const endpoint = query ? `/api/gifs/search?q=${encodeURIComponent(query)}` : `/api/gifs/trending`;
+    try {
+        const res = await fetch(`${getApiPrefix()}${endpoint}`);
+        const data = await res.json();
+        if (data.code === 200 && data.gifs && data.gifs.length > 0) {
+            grid.innerHTML = data.gifs.map(g => `<img src="${g.preview}" data-full="${g.url}" class="gif-item" alt="${escapeHtml(g.title)}" onclick="sendGifMessage(this.getAttribute('data-full'))">`).join('');
+        } else {
+            grid.innerHTML = `<p style="color: var(--text-muted); text-align: center; grid-column: 1/-1;">${data.error || 'Keine GIFs gefunden.'}</p>`;
+        }
+    } catch (e) {
+        console.error("GIF fetch failed:", e);
+        grid.innerHTML = '<p style="color: #ef4444; text-align: center; grid-column: 1/-1;">GIFs konnten nicht geladen werden.</p>';
+    }
+}
+
+async function sendGifMessage(gifUrl) {
+    closeGifPicker();
+    if (!gifUrl) return;
+
+    const formData = new FormData();
+    formData.append('file_url', gifUrl);
+    formData.append('file_type', 'gif');
+
+    if (groupId) {
+        formData.append('group_id', groupId);
+    } else {
+        formData.append('receiver_id', receiver);
+    }
+
+    try {
+        await fetch(`${getApiPrefix()}/upload`, {
+            method: 'POST',
+            body: formData
+        });
+    } catch (e) {
+        console.error("GIF send error:", e);
+    }
+}
+
+// --- 3️⃣ Forward Message System ---
+let forwardSourceMsgId = null;
+
+function openForwardModal(msgId) {
+    forwardSourceMsgId = msgId;
+    const modal = document.getElementById('forwardModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    loadForwardTargets();
+}
+
+function closeForwardModal() {
+    forwardSourceMsgId = null;
+    const modal = document.getElementById('forwardModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function loadForwardTargets() {
+    const listContainer = document.getElementById('forward-target-list');
+    if (!listContainer) return;
+    listContainer.innerHTML = '<p style="color: var(--text-muted); text-align: center;">Lade Empfänger...</p>';
+
+    try {
+        const usersRes = await fetch(`${getApiPrefix()}/users_list`);
+        const usersData = await usersRes.json();
+
+        const groupsRes = await fetch(`${getApiPrefix()}/api/groups`);
+        const groupsData = await groupsRes.json();
+
+        let html = '';
+
+        if (groupsData.code === 200 && groupsData.groups && groupsData.groups.length > 0) {
+            html += `<strong style="font-size:0.8rem; color:var(--text-secondary); margin:6px 0 2px 0;">Gruppen</strong>`;
+            html += groupsData.groups.map(g => `
+                <div class="forward-target-item" onclick="executeForward(${forwardSourceMsgId}, 'group', ${g.id})">
+                    <span><i class="fa-solid fa-users" style="color:var(--accent); margin-right:6px;"></i> ${escapeHtml(g.name)}</span>
+                    <i class="fa-solid fa-paper-plane" style="color:var(--text-muted);"></i>
+                </div>
+            `).join('');
+        }
+
+        if (usersData.code === 200 && usersData.users && usersData.users.length > 0) {
+            html += `<strong style="font-size:0.8rem; color:var(--text-secondary); margin:10px 0 2px 0;">Kontakte</strong>`;
+            html += usersData.users.map(u => `
+                <div class="forward-target-item" onclick="executeForward(${forwardSourceMsgId}, 'user', ${u.id})">
+                    <span><i class="fa-solid fa-user" style="color:var(--accent); margin-right:6px;"></i> ${escapeHtml(u.username)}</span>
+                    <i class="fa-solid fa-paper-plane" style="color:var(--text-muted);"></i>
+                </div>
+            `).join('');
+        }
+
+        listContainer.innerHTML = html || '<p style="color:var(--text-muted); text-align:center;">Keine Empfänger verfügbar.</p>';
+    } catch(e) {
+        console.error("Forward target load error:", e);
+        listContainer.innerHTML = '<p style="color:#ef4444; text-align:center;">Fehler beim Laden.</p>';
+    }
+}
+
+function filterForwardList(val) {
+    const query = val.trim().toLowerCase();
+    document.querySelectorAll('.forward-target-item').forEach(el => {
+        const text = el.textContent.toLowerCase();
+        el.style.display = text.includes(query) ? 'flex' : 'none';
+    });
+}
+
+async function executeForward(msgId, targetType, targetId) {
+    closeForwardModal();
+    if (!msgId || !targetType || !targetId) return;
+
+    try {
+        const res = await fetch(`${getApiPrefix()}/chat/forward_msg`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ msg_id: msgId, target_type: targetType, target_id: targetId })
+        });
+        const data = await res.json();
+        if (data.code === 200) {
+            showToast("Nachricht weitergeleitet ✓");
+        } else {
+            showToast(data.error || "Fehler beim Weiterleiten");
+        }
+    } catch(e) {
+        console.error("Forward execution error:", e);
+        showToast("Fehler beim Weiterleiten");
+    }
+}
+
+function showToast(msg) {
+    let toast = document.querySelector('.toast-notification');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.className = 'toast-notification';
+        document.body.appendChild(toast);
+    }
+    toast.innerText = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2500);
+}
+
+// --- 8️⃣ Chat-Wallpaper System ---
+function openWallpaperModal() {
+    const modal = document.getElementById('wallpaperModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closeWallpaperModal() {
+    const modal = document.getElementById('wallpaperModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function getWallpaperKey() {
+    return groupId ? `chat_wallpaper_group_${groupId}` : `chat_wallpaper_user_${receiver}`;
+}
+
+function selectWallpaper(val) {
+    const key = getWallpaperKey();
+    if (val === 'default') {
+        localStorage.removeItem(key);
+    } else {
+        localStorage.setItem(key, val);
+    }
+    applyWallpaper();
+    closeWallpaperModal();
+}
+
+function applyWallpaper() {
+    const container = document.getElementById('chat-container') || document.querySelector('.container');
+    if (!container) return;
+    const saved = localStorage.getItem(getWallpaperKey()) || 'default';
+
+    if (saved === 'default') {
+        container.style.background = '';
+    } else if (saved === 'preset-midnight') {
+        container.style.background = 'linear-gradient(135deg, #0f172a, #1e1b4b)';
+    } else if (saved === 'preset-emerald') {
+        container.style.background = 'linear-gradient(135deg, #064e3b, #022c22)';
+    } else if (saved === 'preset-ruby') {
+        container.style.background = 'linear-gradient(135deg, #4c0519, #881337)';
+    } else if (saved === 'preset-slate') {
+        container.style.background = 'linear-gradient(135deg, #1e293b, #334155)';
+    } else if (saved === 'preset-neon') {
+        container.style.background = 'linear-gradient(135deg, #311042, #581c87)';
+    } else if (saved.startsWith('url(') || saved.startsWith('/')) {
+        container.style.background = `url("${saved}") center/cover no-repeat`;
+    }
+}
+
+async function uploadCustomWallpaper(input) {
+    if (!input.files || !input.files[0]) return;
+    const file = input.files[0];
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('receiver_id', receiver);
+
+    try {
+        const res = await fetch(`${getApiPrefix()}/upload`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.code === 200 && data.file_url) {
+            localStorage.setItem(getWallpaperKey(), data.file_url);
+            applyWallpaper();
+            closeWallpaperModal();
+        }
+    } catch(e) {
+        console.error("Wallpaper upload error:", e);
+    }
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'dark';
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    localStorage.setItem('chat_theme', next);
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.innerText = next === 'dark' ? '🌙' : '☀️';
+}
+
+function updateThemeBtnIcon() {
+    const current = localStorage.getItem('chat_theme') || 'dark';
+    const btn = document.getElementById('theme-toggle-btn');
+    if (btn) btn.innerText = current === 'dark' ? '🌙' : '☀️';
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    updateThemeBtnIcon();
+    applyWallpaper();
+
+    document.querySelectorAll('.msg-text-content').forEach(el => {
+        const raw = el.getAttribute('data-raw-text') || el.textContent;
+        el.innerHTML = renderMarkdown(raw);
+    });
+    processMessageLinkPreviews();
+});
+

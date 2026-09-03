@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mein Profil - eddi.chat</title>
+    <script>
+        (function() {
+            var t = localStorage.getItem('chat_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <link rel="stylesheet" href="/chat/static/css/main.css?v=3">
+    <link rel="stylesheet" href="/chat/static/css/index.css?v=3">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .profile-container {
+            max-width: 500px;
+            margin: 40px auto;
+            padding: 30px;
+            background: var(--bg-card, rgba(30, 41, 59, 0.7));
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            color: var(--text-primary, #f8fafc);
+        }
+        .profile-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 25px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding-bottom: 15px;
+        }
+        .profile-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .avatar-upload-wrapper {
+            position: relative;
+            width: 130px;
+            height: 130px;
+            margin: 0 auto 25px auto;
+        }
+        .avatar-preview {
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 4px solid var(--accent, #6366f1);
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+        .avatar-overlay {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            background: var(--accent, #6366f1);
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            transition: transform 0.2s ease;
+        }
+        .avatar-overlay:hover {
+            transform: scale(1.1);
+        }
+        .avatar-input-file {
+            display: none;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            color: var(--text-secondary, #94a3b8);
+            font-weight: 500;
+        }
+        .form-control {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(15, 23, 42, 0.5);
+            color: var(--text-primary, #f8fafc);
+            font-size: 1rem;
+            outline: none;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+        .form-control:focus {
+            border-color: var(--accent, #6366f1);
+        }
+        .form-control[readonly] {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+        textarea.form-control {
+            resize: vertical;
+            min-height: 100px;
+        }
+        .char-counter {
+            text-align: right;
+            font-size: 0.8rem;
+            color: var(--text-secondary, #94a3b8);
+            margin-top: 4px;
+        }
+        .profile-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+        }
+        .btn-flex {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .btn-flex:active {
+            transform: scale(0.98);
+        }
+        .btn-primary-action {
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: #ffffff;
+        }
+        .btn-secondary-action {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary, #f8fafc);
+        }
+        .btn-primary-action:hover, .btn-secondary-action:hover {
+            opacity: 0.9;
+        }
+        .theme-btn-top {
+            background: none;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: inherit;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="profile-container">
+        <div class="profile-header">
+            <h2><i class="fa-solid fa-user-gear"></i> Benutzerprofil</h2>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button id="theme-toggle-btn" class="theme-btn-top" title="Design umschalten" onclick="toggleTheme()">🌙</button>
+                <a href="/chat/" class="theme-btn-top" title="Zurück zum Chat" style="text-decoration: none;"><i class="fa-solid fa-xmark"></i></a>
+            </div>
+        </div>
+
+        <form action="/chat/profile" method="POST" enctype="multipart/form-data">
+            <div class="avatar-upload-wrapper">
+                <img id="avatar-img-preview" src="{{ avatar_url }}" alt="{{ username }}" class="avatar-preview">
+                <label for="avatar-file-input" class="avatar-overlay" title="Profilbild ändern">
+                    <i class="fa-solid fa-camera"></i>
+                </label>
+                <input type="file" id="avatar-file-input" name="avatar" class="avatar-input-file" accept="image/*" onchange="previewAvatar(this)">
+            </div>
+
+            <div class="form-group">
+                <label for="username"><i class="fa-solid fa-user"></i> Benutzername</label>
+                <input type="text" id="username" class="form-control" value="{{ username }}" readonly>
+            </div>
+
+            <div class="form-group">
+                <label for="email"><i class="fa-solid fa-envelope"></i> E-Mail Adresse</label>
+                <input type="email" id="email" class="form-control" value="{{ email }}" readonly>
+            </div>
+
+            <div class="form-group">
+                <label for="bio"><i class="fa-solid fa-pen"></i> Über mich (Bio)</label>
+                <textarea id="bio" name="bio" class="form-control" maxlength="500" placeholder="Schreibe etwas über dich..." oninput="updateCharCount(this)">{{ bio }}</textarea>
+                <div class="char-counter"><span id="char-count">{{ bio|length if bio else 0 }}</span> / 500</div>
+            </div>
+
+            <div class="profile-actions">
+                <a href="/chat/" class="btn-flex btn-secondary-action" style="text-decoration: none;">
+                    <i class="fa-solid fa-arrow-left"></i> Zurück
+                </a>
+                <button type="submit" class="btn-flex btn-primary-action">
+                    <i class="fa-solid fa-floppy-disk"></i> Speichern
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        function toggleTheme() {
+            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('chat_theme', next);
+            const btn = document.getElementById('theme-toggle-btn');
+            if (btn) btn.innerText = next === 'dark' ? '🌙' : '☀️';
+        }
+
+        function updateThemeBtnIcon() {
+            const current = localStorage.getItem('chat_theme') || 'dark';
+            const btn = document.getElementById('theme-toggle-btn');
+            if (btn) btn.innerText = current === 'dark' ? '🌙' : '☀️';
+        }
+
+        function previewAvatar(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('avatar-img-preview').src = e.target.result;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function updateCharCount(textarea) {
+            document.getElementById('char-count').innerText = textarea.value.length;
+        }
+
+        document.addEventListener('DOMContentLoaded', updateThemeBtnIcon);
+    </script>
+</body>
+</html>

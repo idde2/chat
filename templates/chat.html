@@ -5,9 +5,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chat mit {{ receiver_name }}</title>
-    <link rel="stylesheet" href="/chat/static/css/chat.css?v=5">
+    <script>
+        (function() {
+            var t = localStorage.getItem('chat_theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
+    <link rel="stylesheet" href="/chat/static/css/chat.css?v=6">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/chat/static/css/main.css?v=5">
+    <link rel="stylesheet" href="/chat/static/css/main.css?v=6">
 </head>
 
 <body data-receiver="{{ receiver }}" data-user="{{ user }}" {% if group_id %}data-group-id="{{ group_id }}" {% endif %}>
@@ -21,6 +27,9 @@
             <span>{{ receiver_name }}</span>
         </div>
         <div class="header-right" style="display: flex; align-items: center; gap: 12px;">
+            <div id="theme-toggle-btn" onclick="toggleTheme()" style="cursor: pointer; font-size: 1.1rem; color: var(--text-muted);" title="Design umschalten">
+                🌙
+            </div>
             <div class="search-icon" onclick="toggleChatSearch()" style="cursor: pointer; font-size: 1.1rem; color: var(--text-muted);" title="Chat durchsuchen">
                 <i class="fa-solid fa-magnifying-glass"></i>
             </div>
@@ -36,7 +45,8 @@
         </div>
         <div class="icons-user" id="icons-user">
             <p> receiver-id: {{ receiver }}</p>
-            <a href="javascript:void(0)" onclick="openMediaGallery()" style="color: #3b82f6; display: block; margin-bottom: 8px;"><i class="fa-solid fa-images"></i> Medien-Galerie</a>
+            <a href="javascript:void(0)" onclick="openWallpaperModal()" style="color: var(--accent); display: block; margin-bottom: 8px;"><i class="fa-solid fa-image"></i> Chat-Hintergrund</a>
+            <a href="javascript:void(0)" onclick="openMediaGallery()" style="color: var(--accent); display: block; margin-bottom: 8px;"><i class="fa-solid fa-images"></i> Medien-Galerie</a>
             <a href="/chat/kontakt/del/{{receiver}}"><i class="fa-solid fa-trash"></i> Kontakt löschen</a>
         </div>
     </div>
@@ -69,7 +79,7 @@
     </div>
 
     {% if group_id and participants %}
-    <div class="group-participants" style="padding: 8px 12px; background: #fafafa; border-bottom: 1px solid #eee;">
+    <div class="group-participants" style="padding: 8px 12px; background: rgba(0,0,0,0.1); border-bottom: 1px solid rgba(255,255,255,0.05);">
         <strong>Teilnehmer:</strong>
         {% for p in participants %}
         <span style="margin-left:8px; font-weight:500;">{{ p.username }}</span>
@@ -77,7 +87,7 @@
     </div>
     {% endif %}
 
-    <div class="container">
+    <div class="container" id="chat-container">
         <div id="pagination-loader" class="pagination-loader hidden">
             <i class="fa-solid fa-spinner fa-spin"></i> Ältere Nachrichten werden geladen...
         </div>
@@ -87,10 +97,13 @@
         {% set is_me = (message[8] == user) %}
         <div class="message-wrapper {{ 'du' if is_me else 'fremd' }}" data-msg-id="{{ msg_id }}" data-reply-to-id="{{ message[9] if message|length > 9 and message[9] else '' }}">
             {% if group_id %}
-            <div style="font-size:0.85rem; color:#cfcfcf; margin-bottom:4px;">{{ message[7] }}</div>
+            <div style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:4px;">{{ message[7] }}</div>
+            {% endif %}
+            {% if message|length > 10 and message[10] %}
+            <div class="forwarded-label"><i class="fa-solid fa-share"></i> Weitergeleitet von {{ message[10] }}</div>
             {% endif %}
             {% if message[5] %}
-            {% if message[6] == 'image' %}
+            {% if message[6] == 'image' or message[6] == 'gif' %}
             <img src="{{ message[5] }}" alt="Bild"
                 style="max-width: 250px; border-radius: 8px; display: block; margin-bottom: 5px;">
             {% elif message[6] == 'audio' %}
@@ -100,12 +113,12 @@
             </div>
             {% else %}
             <a href="{{ message[5] }}" target="_blank"
-                style="color: #4fc3f7; text-decoration: underline; display: block; margin-bottom: 5px;">
+                style="color: var(--accent); text-decoration: underline; display: block; margin-bottom: 5px;">
                 <i class="fa-solid fa-file"></i> {{ message[1] }}
             </a>
             {% endif %}
             {% endif %}
-            <p>{{ message[1] }}</p>
+            <div class="msg-text-content" data-raw-text="{{ message[1] }}">{{ message[1] }}</div>
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px;">
                 <p data-time="{{ message[2] }}" class="time"></p>
                 {% if is_me %}
@@ -135,7 +148,9 @@
                 <span onclick="toggleReaction({{ msg_id }}, '❤️')">❤️</span>
                 <span onclick="toggleReaction({{ msg_id }}, '😂')">😂</span>
                 <span onclick="toggleReaction({{ msg_id }}, '🔥')">🔥</span>
+                <span class="action-icon quick-react-plus" onclick="toggleEmojiPicker('reaction', {{ msg_id }})" title="Mehr Emojis"><i class="fa-solid fa-plus"></i></span>
                 <span class="action-icon pin-action" onclick="pinMessage({{ msg_id }})" title="Anheften"><i class="fa-solid fa-thumbtack"></i></span>
+                <span class="action-icon forward-action" onclick="openForwardModal({{ msg_id }})" title="Weiterleiten"><i class="fa-solid fa-share"></i></span>
                 <span class="reply-action" data-msg-id="{{ msg_id }}" data-sender-name="{{ message[7] or '' }}" onclick="handleReplyClick(this)" title="Antworten"><i class="fa-solid fa-reply"></i></span>
                 {% if is_me %}
                 <span class="action-icon edit-action" onclick="openEditModal({{ msg_id }})" title="Bearbeiten"><i class="fa-solid fa-pen"></i></span>
@@ -146,6 +161,76 @@
         {% endfor %}
     </div>
     <div style="height: 90px; flex-shrink: 0;"></div>
+
+    <!-- Floating Emoji Picker Panel -->
+    <div id="emoji-picker-panel" class="emoji-picker-panel hidden">
+        <div class="emoji-picker-header">
+            <input type="text" id="emoji-search-input" placeholder="Emoji suchen..." oninput="onEmojiSearch(this.value)">
+            <div class="emoji-tabs">
+                <button type="button" data-cat="recent" class="active" onclick="switchEmojiTab('recent')">🕒</button>
+                <button type="button" data-cat="smileys" onclick="switchEmojiTab('smileys')">😀</button>
+                <button type="button" data-cat="animals" onclick="switchEmojiTab('animals')">🐶</button>
+                <button type="button" data-cat="food" onclick="switchEmojiTab('food')">🍕</button>
+                <button type="button" data-cat="travel" onclick="switchEmojiTab('travel')">✈️</button>
+                <button type="button" data-cat="objects" onclick="switchEmojiTab('objects')">⚽</button>
+                <button type="button" data-cat="symbols" onclick="switchEmojiTab('symbols')">💡</button>
+            </div>
+        </div>
+        <div id="emoji-grid-container" class="emoji-grid"></div>
+    </div>
+
+    <!-- Floating GIF Picker Panel -->
+    <div id="gif-picker-panel" class="gif-picker-panel hidden">
+        <div class="gif-picker-header">
+            <input type="text" id="gif-search-input" placeholder="GIFs suchen..." oninput="onGifSearch(this.value)">
+            <button type="button" onclick="closeGifPicker()" class="close-btn">&times;</button>
+        </div>
+        <div id="gif-grid-container" class="gif-grid">
+            <p style="color: var(--text-muted); text-align: center; grid-column: 1/-1;">Lade GIFs...</p>
+        </div>
+    </div>
+
+    <!-- Forward Modal -->
+    <div id="forwardModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-share"></i> Nachricht weiterleiten</h3>
+                <button class="close-btn" onclick="closeForwardModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="forward-search-input" class="form-input" placeholder="Empfänger suchen..." oninput="filterForwardList(this.value)">
+                <div id="forward-target-list" class="forward-target-list">
+                    <p style="color: var(--text-muted); text-align: center;">Lade Empfänger...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Wallpaper Modal -->
+    <div id="wallpaperModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-image"></i> Chat-Hintergrund</h3>
+                <button class="close-btn" onclick="closeWallpaperModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="wallpaper-presets-grid">
+                    <div class="wallpaper-preset-tile" style="background: var(--bg-main);" onclick="selectWallpaper('default')">Standard</div>
+                    <div class="wallpaper-preset-tile" style="background: linear-gradient(135deg, #0f172a, #1e1b4b);" onclick="selectWallpaper('preset-midnight')">Mitternacht</div>
+                    <div class="wallpaper-preset-tile" style="background: linear-gradient(135deg, #064e3b, #022c22);" onclick="selectWallpaper('preset-emerald')">Smaragd</div>
+                    <div class="wallpaper-preset-tile" style="background: linear-gradient(135deg, #4c0519, #881337);" onclick="selectWallpaper('preset-ruby')">Rubin</div>
+                    <div class="wallpaper-preset-tile" style="background: linear-gradient(135deg, #1e293b, #334155);" onclick="selectWallpaper('preset-slate')">Schiefer</div>
+                    <div class="wallpaper-preset-tile" style="background: linear-gradient(135deg, #311042, #581c87);" onclick="selectWallpaper('preset-neon')">Neon</div>
+                </div>
+                <div style="margin-top: 15px; text-align: center;">
+                    <label for="wallpaper-file-input" class="btn btn-secondary" style="cursor: pointer; display: inline-block;">
+                        <i class="fa-solid fa-upload"></i> Eigenes Bild hochladen
+                    </label>
+                    <input type="file" id="wallpaper-file-input" accept="image/*" style="display:none;" onchange="uploadCustomWallpaper(this)">
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div id="upload-preview-bar" class="upload-preview-bar hidden">
         <div class="preview-thumb-container">
@@ -230,6 +315,9 @@
     </div>
 
     <form class="input" id="chat-form" action="/msg/{{ receiver }}" method="post" enctype="multipart/form-data">
+        <button type="button" class="emoji-picker-btn" onclick="toggleEmojiPicker('input')" title="Emoji auswählen">😀</button>
+        <button type="button" class="gif-picker-btn" onclick="toggleGifPicker()" title="GIF suchen">GIF</button>
+        
         <label for="file-upload" class="file-btn" title="Datei anhängen">
             <i class="fa-solid fa-paperclip"></i>
         </label>
@@ -266,7 +354,7 @@
     </div>
 
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
-    <script src="/chat/static/js/chat.js?v=9"></script>
+    <script src="/chat/static/js/chat.js?v=10"></script>
 </body>
 
 </html>

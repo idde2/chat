@@ -3,10 +3,15 @@ import jwt
 import os
 import json
 import ast
+import urllib.parse
+import ipaddress
+import socket
+import requests
+from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, timezone
 import bcrypt
 from functools import wraps
-from api import sqlq
+from api import sqlq, get_conf
 
 # -------------------------------------------------------
 # Blueprint + JWT Secret
@@ -563,5 +568,236 @@ def get_chat_media(target_type, target_id):
             })
 
     return jsonify({"code": 200, "media": media_items})
+
+
+# -------------------------------------------------------
+# SSRF-Schutz & Cache für Link Preview
+# -------------------------------------------------------
+LINK_PREVIEW_CACHE = {}
+
+def is_safe_url(url_str: str) -> bool:
+    try:
+        parsed = urllib.parse.urlparse(url_str)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        if hostname.lower() in ('localhost', '127.0.0.1', '0.0.0.0', '::1'):
+            return False
+        ip_list = socket.gethostbyname_ex(hostname)[2]
+        for ip in ip_list:
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_reserved or ip_obj.is_link_local:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+# -------------------------------------------------------
+# Route: POST /api/messages/forward
+# -------------------------------------------------------
+@back.route("/messages/forward", methods=["POST"])
+@jwt_required
+def forward_message():
+    my_id = request.jwt_user_id
+    my_username = request.jwt_username
+    data = request.get_json(silent=True) or {}
+    msg_id = data.get("msg_id")
+    target_type = data.get("target_type")  # "user" oder "group"
+    target_id = data.get("target_id")
+
+    if not msg_id or not target_type or not target_id:
+        return jsonify({"code": 400, "error": "Fehlende Parameter"}), 400
+
+    try:
+        target_id = int(target_id)
+        msg_id = int(msg_id)
+    except (ValueError, TypeError):
+        return jsonify({"code": 400, "error": "Ungültige IDs"}), 400
+
+    row = sqlq("""SELECT m.content, m.file_url, m.file_type, u.username 
+                  FROM msg m 
+                  LEFT JOIN users u ON u.id = m.id 
+                  WHERE m.msg_id = %s""", (msg_id,), "one")
+    if not row:
+        return jsonify({"code": 404, "error": "Ursprüngliche Nachricht nicht gefunden"}), 404
+
+    content, file_url, file_type, orig_sender = row[0], row[1], row[2], row[3] or "Anonym"
+
+    from api import socketio as sio
+
+    if target_type == "group":
+        new_msg_id = sqlq(
+            "INSERT INTO msg (id, receiver, conv, content, file_url, file_type, forwarded_from, status) VALUES (%s, 0, %s, %s, %s, %s, %s, 'sent')",
+            (my_id, target_id, content, file_url, file_type, orig_sender), "lastid"
+        )
+        if sio:
+            sio.emit("msg", {
+                "content": content,
+                "sender": my_username,
+                "sender_id": my_id,
+                "file_url": file_url,
+                "file_type": file_type,
+                "forwarded_from": orig_sender,
+                "status": "sent",
+                "msg_id": new_msg_id
+            }, room=f"group_{target_id}")
+    else:
+        new_msg_id = sqlq(
+            "INSERT INTO msg (id, receiver, content, file_url, file_type, forwarded_from, status) VALUES (%s, %s, %s, %s, %s, %s, 'sent')",
+            (my_id, target_id, content, file_url, file_type, orig_sender), "lastid"
+        )
+        if sio:
+            ids = sorted([my_id, target_id])
+            sio.emit("msg", {
+                "content": content,
+                "sender": my_username,
+                "sender_id": my_id,
+                "file_url": file_url,
+                "file_type": file_type,
+                "forwarded_from": orig_sender,
+                "status": "sent",
+                "msg_id": new_msg_id
+            }, room=f"{ids[0]}_{ids[1]}")
+
+    return jsonify({"code": 200, "message": "Nachricht weitergeleitet", "msg_id": new_msg_id})
+
+
+# -------------------------------------------------------
+# Route: GET /api/profile/<username>
+# -------------------------------------------------------
+@back.route("/profile/<username>")
+@jwt_required
+def get_user_profile(username):
+    row = sqlq("SELECT id, username, bio, avatar_url FROM users WHERE username = %s", (username,), "one")
+    if not row:
+        return jsonify({"code": 404, "error": "Benutzer nicht gefunden"}), 404
+    avatar = row[3] or f"/chat/profile/{row[1]}.png"
+    return jsonify({
+        "code": 200,
+        "profile": {
+            "id": row[0],
+            "username": row[1],
+            "bio": row[2] or "",
+            "avatar_url": avatar
+        }
+    })
+
+
+# -------------------------------------------------------
+# Route: GET /api/unread_counts
+# -------------------------------------------------------
+@back.route("/unread_counts")
+@jwt_required
+def get_unread_counts():
+    my_id = request.jwt_user_id
+
+    rows_u = sqlq("SELECT id, COUNT(*) FROM msg WHERE receiver = %s AND status != 'read' GROUP BY id", (my_id,), "all")
+    unread_users = {}
+    if rows_u:
+        for sender_id, cnt in rows_u:
+            unread_users[str(sender_id)] = cnt
+
+    unread_groups = {}
+    groups_rows = sqlq("SELECT id FROM `groups` WHERE owner_id = %s OR members LIKE %s", (my_id, f"%{my_id}%"), "all")
+    if groups_rows:
+        for g in groups_rows:
+            gid = g[0]
+            lr_row = sqlq("SELECT last_read_msg_id FROM group_read_status WHERE user_id = %s AND group_id = %s", (my_id, gid), "one")
+            last_read_id = lr_row[0] if lr_row else 0
+            cnt_row = sqlq("SELECT COUNT(*) FROM msg WHERE conv = %s AND msg_id > %s AND id != %s", (gid, last_read_id, my_id), "one")
+            cnt = cnt_row[0] if cnt_row else 0
+            if cnt > 0:
+                unread_groups[str(gid)] = cnt
+
+    return jsonify({"code": 200, "unread_users": unread_users, "unread_groups": unread_groups})
+
+
+# -------------------------------------------------------
+# Route: GET /api/link-preview
+# -------------------------------------------------------
+@back.route("/link-preview")
+def link_preview():
+    url = request.args.get("url", "").strip()
+    if not url or not is_safe_url(url):
+        return jsonify({"code": 400, "error": "Ungültige oder unsichere URL"}), 400
+
+    if url in LINK_PREVIEW_CACHE:
+        return jsonify({"code": 200, **LINK_PREVIEW_CACHE[url]})
+
+    try:
+        resp = requests.get(url, timeout=3, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) eddiBot/1.0"})
+        if resp.status_code != 200:
+            return jsonify({"code": 400, "error": "Seite konnte nicht geladen werden"}), 400
+
+        soup = BeautifulSoup(resp.content, "html.parser")
+
+        og_title = soup.find("meta", property="og:title") or soup.find("meta", attrs={"name": "og:title"})
+        title = og_title["content"] if og_title and og_title.get("content") else (soup.title.string if soup.title else "")
+
+        og_desc = soup.find("meta", property="og:description") or soup.find("meta", attrs={"name": "description"})
+        desc = og_desc["content"] if og_desc and og_desc.get("content") else ""
+
+        og_img = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "og:image"})
+        img = og_img["content"] if og_img and og_img.get("content") else ""
+
+        domain = urllib.parse.urlparse(url).netloc
+
+        res = {
+            "title": str(title).strip()[:150],
+            "description": str(desc).strip()[:250],
+            "image": str(img).strip(),
+            "domain": domain,
+            "url": url
+        }
+
+        if len(LINK_PREVIEW_CACHE) > 500:
+            LINK_PREVIEW_CACHE.clear()
+        LINK_PREVIEW_CACHE[url] = res
+
+        return jsonify({"code": 200, **res})
+    except Exception as e:
+        return jsonify({"code": 500, "error": str(e)}), 500
+
+
+# -------------------------------------------------------
+# Route: GET /api/gifs/search & GET /api/gifs/trending
+# -------------------------------------------------------
+@back.route("/gifs/search")
+@back.route("/gifs/trending")
+def get_gifs():
+    q = request.args.get("q", "").strip()
+    tenor_key = get_conf("tenor_api_key")
+    if not tenor_key:
+        return jsonify({"code": 503, "error": "Tenor API-Key nicht konfiguriert"}), 503
+
+    try:
+        if q:
+            api_url = f"https://tenor.googleapis.com/v2/search?q={urllib.parse.quote(q)}&key={tenor_key}&client_key=eddi_chat&limit=20"
+        else:
+            api_url = f"https://tenor.googleapis.com/v2/featured?key={tenor_key}&client_key=eddi_chat&limit=20"
+
+        r = requests.get(api_url, timeout=4)
+        data = r.json()
+
+        gifs = []
+        if "results" in data:
+            for item in data["results"]:
+                media = item.get("media_formats", {})
+                preview = media.get("tinymp4", {}).get("url") or media.get("gifpreview", {}).get("url") or media.get("tinygif", {}).get("url")
+                full = media.get("gif", {}).get("url") or media.get("mediumgif", {}).get("url")
+                if full and preview:
+                    gifs.append({
+                        "id": item.get("id"),
+                        "title": item.get("title", ""),
+                        "preview": preview,
+                        "url": full
+                    })
+        return jsonify({"code": 200, "gifs": gifs})
+    except Exception as e:
+        return jsonify({"code": 500, "error": f"Tenor API-Fehler: {str(e)}"}), 500
+
 
 
