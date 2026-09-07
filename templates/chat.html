@@ -22,9 +22,15 @@
             <i class="fa-solid fa-arrow-left"></i>
         </div>
         <div class="user-info">
-            <img src="/chat/static/img/profil/{{ receiver_name }}.png" alt="" height="25" width="25" alt=""
+            <img src="/chat/static/img/profil/{{ receiver_name }}.png" alt="" height="25" width="25"
                 loading="lazy" decoding="async" fetchpriority="low">
-            <span>{{ receiver_name }}</span>
+            <div class="user-info-text">
+                <span class="user-info-name">{{ receiver_name }}</span>
+                <span id="typing-indicator" class="typing-indicator hidden">
+                    <span class="typing-text">schreibt</span>
+                    <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
+                </span>
+            </div>
         </div>
         <div class="header-right" style="display: flex; align-items: center; gap: 12px;">
             <div id="theme-toggle-btn" onclick="toggleTheme()" style="cursor: pointer; font-size: 1.1rem; color: var(--text-muted);" title="Design umschalten">

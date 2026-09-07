@@ -26,6 +26,7 @@ def run_migrations():
             ("name",       "VARCHAR(255) NOT NULL DEFAULT ''"),
             ("owner_id",   "INT NOT NULL DEFAULT 0"),
             ("members",    "TEXT NULL"),
+            ("avatar_url", "VARCHAR(500) NULL"),
             ("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
         ]:
             cur.execute("""

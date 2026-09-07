@@ -741,7 +741,7 @@ def user_profile_settings():
                 save_filename = f"{username}.png"
                 save_path = os.path.join(profile_dir, save_filename)
                 img.save(save_path, "PNG")
-                new_avatar_url = f"/chat/profile/{save_filename}"
+                new_avatar_url = f"/chat/static/profil/{save_filename}"
             except Exception as e:
                 print(f"[ERROR] Profilbild Upload: {e}")
 
@@ -752,7 +752,7 @@ def user_profile_settings():
         "profile.html",
         username=username,
         bio=bio,
-        avatar_url=avatar_url or f"/chat/profile/{username}.png",
+        avatar_url=avatar_url or f"/chat/static/img/profil/{username}.png",
         email=email
     )
 

@@ -338,7 +338,9 @@ socket.on('connect', () => {
 
 // ------------------------ Typing Indicator ------------------------
 const msgInput = document.getElementById('msg-input');
+const typingIndicator = document.getElementById('typing-indicator');
 let typingTimeout = null;
+let remoteTypingTimer = null;
 
 if (msgInput) {
     msgInput.addEventListener('input', () => {
@@ -352,6 +354,27 @@ if (msgInput) {
         }
     });
 }
+
+socket.on('typing', (data) => {
+    if (data && data.user_id == receiver) {
+        if (typingIndicator) {
+            typingIndicator.classList.remove('hidden');
+        }
+        clearTimeout(remoteTypingTimer);
+        remoteTypingTimer = setTimeout(() => {
+            if (typingIndicator) typingIndicator.classList.add('hidden');
+        }, 3000);
+    }
+});
+
+socket.on('stop_typing', (data) => {
+    if (data && data.user_id == receiver) {
+        if (typingIndicator) {
+            typingIndicator.classList.add('hidden');
+        }
+        clearTimeout(remoteTypingTimer);
+    }
+});
 
 function updateReactionsUI(messageId, reactions) {
     const msgEl = document.querySelector(`[data-msg-id="${messageId}"]`);

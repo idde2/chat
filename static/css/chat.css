@@ -68,6 +68,45 @@ body {
     border: 2px solid var(--accent-emerald);
 }
 
+.user-info-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.user-info-name {
+    font-size: 1.05rem;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.typing-indicator {
+    font-size: 0.78rem;
+    color: var(--accent-emerald);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    transition: opacity 0.2s ease, max-height 0.2s ease;
+}
+
+.typing-indicator.hidden {
+    display: none !important;
+}
+
+.typing-dots span {
+    animation: typingPulse 1.4s infinite ease-in-out both;
+}
+
+.typing-dots span:nth-child(1) { animation-delay: 0s; }
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typingPulse {
+    0%, 80%, 100% { opacity: 0.2; transform: translateY(0); }
+    40% { opacity: 1; transform: translateY(-2px); }
+}
+
 .icons {
     font-size: 1.2rem;
     color: var(--text-muted);

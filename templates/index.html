@@ -41,6 +41,17 @@
         </div>
     </div>
 
+    <div class="global-search-bar">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input type="text" id="global-search-input" placeholder="Nachrichten & Kontakte suchen..." onkeyup="handleGlobalSearch(event)">
+        <span class="search-clear-btn hidden" id="search-clear-btn" onclick="clearGlobalSearch()">&times;</span>
+    </div>
+
+    <div id="search-results-container" class="search-results-container hidden">
+        <div class="search-results-header">Suchergebnisse</div>
+        <div id="search-results-list" class="search-results-list"></div>
+    </div>
+
     <div class="container">
         {% for contact in kontacts %}
         <div onclick="window.location.href='/chat/chat/{{ contact.username }}'" style="cursor: pointer;" class="contact"

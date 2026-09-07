@@ -122,3 +122,68 @@ function submitCreateGroup() {
 }
 
 document.addEventListener('DOMContentLoaded', updateThemeBtnIcon);
+
+// ------------------------ Global Search ------------------------
+let globalSearchTimeout = null;
+
+function handleGlobalSearch(event) {
+    const query = event.target.value.trim();
+    const clearBtn = document.getElementById('search-clear-btn');
+    const container = document.getElementById('search-results-container');
+    const list = document.getElementById('search-results-list');
+
+    if (clearBtn) {
+        if (query.length > 0) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+    }
+
+    if (query.length < 2) {
+        if (container) container.classList.add('hidden');
+        if (list) list.innerHTML = '';
+        return;
+    }
+
+    clearTimeout(globalSearchTimeout);
+    globalSearchTimeout = setTimeout(() => {
+        const searchUrl = (window.location.pathname.startsWith('/chat') ? '/chat/search' : '/search') + `?q=${encodeURIComponent(query)}`;
+        fetch(searchUrl)
+            .then(res => res.json())
+            .then(data => {
+                if (!container || !list) return;
+                list.innerHTML = '';
+                const results = data.results || [];
+                if (results.length === 0) {
+                    list.innerHTML = '<div style="padding: 12px; font-size: 0.85rem; color: var(--text-secondary);">Keine Nachrichten gefunden.</div>';
+                } else {
+                    results.forEach(item => {
+                        const div = document.createElement('div');
+                        div.className = 'search-result-item';
+                        div.onclick = () => {
+                            window.location.href = `/chat/chat/${item.other_user}`;
+                        };
+                        div.innerHTML = `
+                            <div class="search-result-top">
+                                <span><i class="fa-solid fa-user"></i> ${item.other_user}</span>
+                                <span style="font-size: 0.75rem; color: var(--text-muted);">${item.time}</span>
+                            </div>
+                            <div class="search-result-snippet">${item.content}</div>
+                        `;
+                        list.appendChild(div);
+                    });
+                }
+                container.classList.remove('hidden');
+            });
+    }, 300);
+}
+
+function clearGlobalSearch() {
+    const input = document.getElementById('global-search-input');
+    const clearBtn = document.getElementById('search-clear-btn');
+    const container = document.getElementById('search-results-container');
+    const list = document.getElementById('search-results-list');
+
+    if (input) input.value = '';
+    if (clearBtn) clearBtn.classList.add('hidden');
+    if (container) container.classList.add('hidden');
+    if (list) list.innerHTML = '';
+}
