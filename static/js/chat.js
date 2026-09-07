@@ -1801,6 +1801,45 @@ async function uploadCustomWallpaper(input) {
     }
 }
 
+// ------------------------ Group Info Modal ------------------------
+async function openGroupInfoModal() {
+    if (!groupId) return;
+    const modal = document.getElementById('groupInfoModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+
+    try {
+        const res = await fetch(`/chat/api/groups/${groupId}`);
+        const data = await res.json();
+        if (data.code === 200 && data.group) {
+            const g = data.group;
+            document.getElementById('group-info-name').innerText = g.name;
+            const avatar = document.getElementById('group-info-avatar');
+            if (avatar) avatar.src = g.avatar_url;
+
+            const badge = document.getElementById('group-info-admin-badge');
+            if (badge) badge.innerText = `${g.members.length} Mitglieder`;
+
+            const list = document.getElementById('group-members-list');
+            if (list) {
+                list.innerHTML = g.members.map(m => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span><i class="fa-solid fa-user" style="color: var(--accent-emerald);"></i> ${m.username}</span>
+                        ${m.is_owner ? '<span style="font-size:0.75rem; background: var(--accent-emerald); color:#fff; padding: 2px 6px; border-radius: 4px;">Admin</span>' : ''}
+                    </div>
+                `).join('');
+            }
+        }
+    } catch(e) {
+        console.error("Group Info fetch failed:", e);
+    }
+}
+
+function closeGroupInfoModal() {
+    const modal = document.getElementById('groupInfoModal');
+    if (modal) modal.classList.add('hidden');
+}
+
 function toggleTheme() {
     const current = document.documentElement.getAttribute('data-theme') || 'dark';
     const next = current === 'dark' ? 'light' : 'dark';

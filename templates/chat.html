@@ -51,6 +51,9 @@
         </div>
         <div class="icons-user" id="icons-user">
             <p> receiver-id: {{ receiver }}</p>
+            {% if group_id %}
+            <a href="javascript:void(0)" onclick="openGroupInfoModal()" style="color: var(--accent-emerald); display: block; margin-bottom: 8px; font-weight: 600;"><i class="fa-solid fa-users-gear"></i> Gruppen-Info</a>
+            {% endif %}
             <a href="javascript:void(0)" onclick="openWallpaperModal()" style="color: var(--accent); display: block; margin-bottom: 8px;"><i class="fa-solid fa-image"></i> Chat-Hintergrund</a>
             <a href="javascript:void(0)" onclick="openMediaGallery()" style="color: var(--accent); display: block; margin-bottom: 8px;"><i class="fa-solid fa-images"></i> Medien-Galerie</a>
             <a href="/chat/kontakt/del/{{receiver}}"><i class="fa-solid fa-trash"></i> Kontakt löschen</a>
@@ -357,6 +360,30 @@
             </div>
         </div>
         <button class="lightbox-nav next" onclick="navigateLightbox(1)"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+
+    <!-- Group Info Modal -->
+    <div id="groupInfoModal" class="modal-backdrop hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-users-gear"></i> Gruppen-Details</h3>
+                <button class="close-btn" onclick="closeGroupInfoModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 16px;">
+                    <img id="group-info-avatar" src="/chat/static/img/profil/default_group.png" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover;">
+                    <div>
+                        <h4 id="group-info-name" style="margin: 0; font-size: 1.1rem;">Gruppenname</h4>
+                        <span id="group-info-admin-badge" style="font-size: 0.78rem; color: var(--accent-emerald);"></span>
+                    </div>
+                </div>
+                <h5 style="margin: 12px 0 6px 0; color: var(--text-muted);">Mitglieder</h5>
+                <div id="group-members-list" class="members-select-list" style="max-height: 180px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeGroupInfoModal()">Schließen</button>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>

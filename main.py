@@ -652,6 +652,79 @@ def create_group():
     return jsonify({"code": 201, "group": {"id": gid, "name": group_name}}), 201
 
 
+@app.route("/api/groups/<int:group_id>", methods=["GET"])
+@app.route("/chat/api/groups/<int:group_id>", methods=["GET"])
+def get_group_info(group_id):
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    group_row = sqlq("SELECT id, name, owner_id, members, avatar_url FROM `groups` WHERE id = %s", (group_id,), "one")
+    if not group_row:
+        return jsonify({"code": 404, "error": "Gruppe nicht gefunden"}), 404
+
+    gid, name, owner_id, members_json, avatar_url = group_row
+    try:
+        member_ids = json.loads(members_json) if members_json else []
+    except Exception:
+        member_ids = []
+
+    members_info = []
+    if member_ids:
+        format_strings = ','.join(['%s'] * len(member_ids))
+        rows = sqlq(f"SELECT id, username FROM users WHERE id IN ({format_strings})", tuple(member_ids), "all")
+        if rows:
+            for r in rows:
+                members_info.append({"id": r[0], "username": r[1], "is_owner": r[0] == owner_id})
+
+    return jsonify({
+        "code": 200,
+        "group": {
+            "id": gid,
+            "name": name,
+            "owner_id": owner_id,
+            "avatar_url": avatar_url or f"/chat/static/img/profil/default_group.png",
+            "members": members_info
+        }
+    })
+
+
+@app.route("/api/groups/<int:group_id>/members", methods=["POST"])
+@app.route("/chat/api/groups/<int:group_id>/members", methods=["POST"])
+def update_group_members(group_id):
+    user = session.get("user")
+    if not user:
+        return jsonify({"code": 401, "error": "Nicht eingeloggt"}), 401
+
+    my_id = sqlq("SELECT id FROM users WHERE username = %s", (user,), "one")
+    if not my_id:
+        return jsonify({"code": 401, "error": "Ungültiger Benutzer"}), 401
+    my_id = my_id[0]
+
+    group_row = sqlq("SELECT owner_id, members FROM `groups` WHERE id = %s", (group_id,), "one")
+    if not group_row:
+        return jsonify({"code": 404, "error": "Gruppe nicht gefunden"}), 404
+
+    owner_id, members_json = group_row
+    if owner_id != my_id:
+        return jsonify({"code": 403, "error": "Nur der Gruppen-Admin kann Mitglieder verwalten"}), 403
+
+    data = request.get_json(silent=True) or {}
+    new_member_ids = data.get("members", [])
+    try:
+        new_member_ids = [int(m) for m in new_member_ids]
+    except Exception:
+        new_member_ids = []
+
+    if owner_id not in new_member_ids:
+        new_member_ids.append(owner_id)
+
+    updated_json = json.dumps(new_member_ids)
+    sqlq("UPDATE `groups` SET members = %s WHERE id = %s", (updated_json, group_id), "none")
+
+    return jsonify({"code": 200, "message": "Mitglieder aktualisiert"})
+
+
 
 
 @app.route("/register", methods=["GET", "POST"])
