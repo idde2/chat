@@ -1203,6 +1203,78 @@ def get_pinned_message(target_type, target_id):
     return jsonify({"code": 200, "pinned": None})
 
 
+# ------------------------ Tenor GIF Proxy API ------------------------
+@app.route("/api/gifs/trending", methods=["GET"])
+@app.route("/chat/api/gifs/trending", methods=["GET"])
+def get_trending_gifs():
+    import urllib.request
+    import urllib.parse
+
+    api_key = get_conf("tenor_api_key", "LIVDSRZULEUB")
+    limit = request.args.get("limit", 20, type=int)
+
+    url = f"https://tenor.googleapis.com/v2/featured?key={api_key}&client_key=eddi_chat&limit={limit}&media_filter=gif,tinygif"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            results = data.get("results", [])
+            gifs = []
+            for item in results:
+                media = item.get("media_formats", {})
+                gif_url = media.get("gif", {}).get("url") or media.get("tinygif", {}).get("url")
+                preview_url = media.get("tinygif", {}).get("url") or gif_url
+                if gif_url:
+                    gifs.append({
+                        "id": item.get("id"),
+                        "title": item.get("content_description", "GIF"),
+                        "url": gif_url,
+                        "preview": preview_url
+                    })
+            return jsonify({"code": 200, "gifs": gifs})
+    except Exception as e:
+        print("Tenor API Error:", e)
+        return jsonify({"code": 500, "error": "GIFs konnten nicht von Tenor geladen werden", "gifs": []})
+
+
+@app.route("/api/gifs/search", methods=["GET"])
+@app.route("/chat/api/gifs/search", methods=["GET"])
+def search_gifs():
+    import urllib.request
+    import urllib.parse
+
+    q = request.args.get("q", "").strip()
+    if not q:
+        return get_trending_gifs()
+
+    api_key = get_conf("tenor_api_key", "LIVDSRZULEUB")
+    limit = request.args.get("limit", 20, type=int)
+
+    encoded_q = urllib.parse.quote(q)
+    url = f"https://tenor.googleapis.com/v2/search?q={encoded_q}&key={api_key}&client_key=eddi_chat&limit={limit}&media_filter=gif,tinygif"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            results = data.get("results", [])
+            gifs = []
+            for item in results:
+                media = item.get("media_formats", {})
+                gif_url = media.get("gif", {}).get("url") or media.get("tinygif", {}).get("url")
+                preview_url = media.get("tinygif", {}).get("url") or gif_url
+                if gif_url:
+                    gifs.append({
+                        "id": item.get("id"),
+                        "title": item.get("content_description", "GIF"),
+                        "url": gif_url,
+                        "preview": preview_url
+                    })
+            return jsonify({"code": 200, "gifs": gifs})
+    except Exception as e:
+        print("Tenor Search API Error:", e)
+        return jsonify({"code": 500, "error": "GIFs konnten nicht durchsucht werden", "gifs": []})
+
+
 # ------------------------ History Pagination Route ------------------------
 @app.route("/chat/messages/history", methods=["GET"])
 @app.route("/messages/history", methods=["GET"])

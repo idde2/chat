@@ -1502,6 +1502,8 @@ function toggleEmojiPicker(context = 'input', msgId = null) {
     const panel = document.getElementById('emoji-picker-panel');
     if (!panel) return;
 
+    closeGifPicker();
+
     if (panel.classList.contains('hidden')) {
         loadRecentEmojis();
         panel.classList.remove('hidden');
@@ -1568,6 +1570,10 @@ let gifDebounceTimer = null;
 function toggleGifPicker() {
     const panel = document.getElementById('gif-picker-panel');
     if (!panel) return;
+
+    const emojiPanel = document.getElementById('emoji-picker-panel');
+    if (emojiPanel) emojiPanel.classList.add('hidden');
+
     if (panel.classList.contains('hidden')) {
         panel.classList.remove('hidden');
         loadGifs('');
