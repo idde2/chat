@@ -369,7 +369,9 @@ def kontakt(art=None,id=None):
     return redirect("/" + path + "/kontakt")
 
 @app.route("/msg/<receiver>",methods=["POST"])
+@app.route("/chat/msg/<receiver>",methods=["POST"])
 @app.route("/msg/<receiver>/<msg>")
+@app.route("/chat/msg/<receiver>/<msg>")
 def msg(receiver,msg=None):
     user = session.get("user") if session.get("user") else ""
 

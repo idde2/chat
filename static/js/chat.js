@@ -208,19 +208,21 @@ if (chatForm) {
         const replyToId = document.getElementById('reply-to-id-input')?.value;
         if (replyToId) formData.append("reply_to_id", replyToId);
 
-        let targetUrl = chatForm.getAttribute('action') || window.location.href;
+        let targetUrl = chatForm.getAttribute('action') || window.location.pathname;
         if (!targetUrl.startsWith('/chat') && window.location.pathname.startsWith('/chat')) {
-            targetUrl = '/chat' + targetUrl;
+            targetUrl = '/chat' + (targetUrl.startsWith('/') ? targetUrl : '/' + targetUrl);
         }
 
         try {
-            await fetch(targetUrl, {
+            const res = await fetch(targetUrl, {
                 method: "POST",
                 headers: {
                     "X-Requested-With": "XMLHttpRequest"
                 },
                 body: formData
             });
+            const data = await res.json();
+            console.log("Nachricht gesendet Result:", data);
         } catch (err) {
             console.error("Fehler beim Senden der Nachricht:", err);
         }
